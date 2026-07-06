@@ -10,7 +10,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .provider import MCP_FETCH_TOOLS, MCP_SEARCH_TOOLS, TinyFishWebSearchProvider
+from .provider import (
+    MCP_FETCH_TOOLS,
+    MCP_SEARCH_TOOLS,
+    TinyFishWebSearchProvider,
+    _discover_tinyfish_mcp_tools,
+)
 
 TINYFISH_MCP_URL = "https://agent.tinyfish.ai/mcp"
 
@@ -182,7 +187,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tool_names() -> set[str]:
+def _tool_names(*, discover_mcp: bool = False) -> set[str]:
+    if discover_mcp:
+        _discover_tinyfish_mcp_tools()
     try:
         from tools.registry import registry
 
@@ -195,7 +202,7 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
     config = _load_config()
     mcp_cfg = (config.get("mcp_servers") or {}).get("tinyfish") or {}
     web_cfg = config.get("web") or {}
-    names = _tool_names()
+    names = _tool_names(discover_mcp=live)
     token_path = _hermes_home() / "mcp-tokens" / "tinyfish.json"
     api_key_configured = bool(_get_env("TINYFISH_API_KEY"))
     provider = TinyFishWebSearchProvider()
