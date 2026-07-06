@@ -14,14 +14,17 @@ REST API calls with `TINYFISH_API_KEY` when MCP OAuth is unavailable.
 
 ## Install
 
-Recommended Git plugin install:
+Stable Git plugin install:
 
 ```bash
 hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
 hermes tinyfish setup
 ```
 
-PyPI install:
+Hermes installs from the latest stable GitHub release by default. The `main`
+branch is the current development branch.
+
+PyPI install is planned after PyPI Trusted Publishing is configured:
 
 ```bash
 pip install hermes-plugin-tinyfish
