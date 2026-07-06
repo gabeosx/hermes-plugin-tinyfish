@@ -67,6 +67,39 @@ def _registered_tool_names() -> set[str]:
         return set()
 
 
+def _tinyfish_mcp_configured() -> bool:
+    try:
+        from hermes_cli.config import load_config
+
+        config = load_config() or {}
+    except Exception:
+        return False
+    mcp_config = (config.get("mcp_servers") or {}).get(MCP_SERVER_NAME) or {}
+    return bool(mcp_config.get("url") and mcp_config.get("auth") == "oauth")
+
+
+def _discover_tinyfish_mcp_tools() -> None:
+    """Register configured MCP tools for this process without prompting for OAuth."""
+
+    if not _tinyfish_mcp_configured():
+        return
+    try:
+        from tools.mcp_oauth import suppress_interactive_oauth
+    except Exception:
+        suppress_interactive_oauth = None
+
+    try:
+        from tools.mcp_tool import discover_mcp_tools
+    except Exception:
+        return
+
+    if suppress_interactive_oauth is None:
+        discover_mcp_tools()
+        return
+    with suppress_interactive_oauth():
+        discover_mcp_tools()
+
+
 def _first_registered(candidates: tuple[str, ...]) -> str | None:
     names = _registered_tool_names()
     for candidate in candidates:
@@ -136,6 +169,9 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
 
     def _call_mcp(self, candidates: tuple[str, ...], args: dict[str, Any]) -> Any | None:
         tool_name = _first_registered(candidates)
+        if tool_name is None:
+            _discover_tinyfish_mcp_tools()
+            tool_name = _first_registered(candidates)
         if tool_name is None:
             return None
         logger.debug("TinyFish using MCP tool %s", tool_name)

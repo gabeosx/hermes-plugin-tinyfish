@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from hermes_plugin_tinyfish import provider as provider_mod
 from hermes_plugin_tinyfish import rest_client
 from hermes_plugin_tinyfish.provider import TinyFishWebSearchProvider
 from tests.conftest import fake_registry
@@ -54,6 +55,35 @@ def test_search_uses_mcp_before_rest(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result["success"] is True
     assert result["data"]["web"][0]["title"] == "MCP result"
+    assert fake_registry.calls == [("mcp__tinyfish__search", {"query": "query"})]
+
+
+def test_search_discovers_mcp_tools_before_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_registry.responses["mcp__tinyfish__search"] = json.dumps(
+        {
+            "results": [
+                {
+                    "title": "Discovered MCP result",
+                    "url": "https://example.com",
+                    "snippet": "from discovered MCP",
+                }
+            ]
+        }
+    )
+
+    def discover() -> None:
+        fake_registry.names.add("mcp__tinyfish__search")
+
+    def fail_rest(*args, **kwargs):
+        raise AssertionError("REST should not be called")
+
+    monkeypatch.setattr(provider_mod, "_discover_tinyfish_mcp_tools", discover)
+    monkeypatch.setattr(rest_client, "search", fail_rest)
+
+    result = TinyFishWebSearchProvider().search("query", limit=1)
+
+    assert result["success"] is True
+    assert result["data"]["web"][0]["title"] == "Discovered MCP result"
     assert fake_registry.calls == [("mcp__tinyfish__search", {"query": "query"})]
 
 
