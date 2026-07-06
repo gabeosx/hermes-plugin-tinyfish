@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-plugin-tinyfish"
-version = "0.1.1"
+version = "0.1.2"
 description = "TinyFish web search and extraction provider plugin for Hermes Agent"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-  { name = "Gabe O'Leary" }
+  { name = "gabeosx" }
 ]
 keywords = ["hermes-agent", "tinyfish", "mcp", "web-search", "web-extraction"]
 classifiers = [
