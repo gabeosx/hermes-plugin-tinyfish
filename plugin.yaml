@@ -1,0 +1,9 @@
+name: web-tinyfish
+version: 0.1.0
+description: "TinyFish web search and content extraction provider for Hermes Agent. Prefers TinyFish hosted MCP OAuth and falls back to TINYFISH_API_KEY REST calls."
+author: Gabe O'Leary
+kind: backend
+provides_web_providers:
+  - tinyfish
+homepage: "https://github.com/gabeosx/hermes-plugin-tinyfish"
+license: MIT

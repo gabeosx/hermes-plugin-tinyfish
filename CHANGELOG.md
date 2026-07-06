@@ -1,0 +1,16 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project uses semantic versioning.
+
+## [0.1.0] - 2026-07-06
+
+### Added
+
+- Initial TinyFish Hermes web provider.
+- OAuth MCP-first routing for search and fetch.
+- REST API-key fallback for `TINYFISH_API_KEY`.
+- `hermes tinyfish setup`, `doctor`, and `status` CLI commands.
+- CI, release, dependency review, and PyPI publishing workflows.
