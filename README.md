@@ -1,9 +1,10 @@
 # Hermes TinyFish Plugin
 
 [![CI](https://github.com/gabeosx/hermes-plugin-tinyfish/actions/workflows/ci.yml/badge.svg)](https://github.com/gabeosx/hermes-plugin-tinyfish/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/hermes-plugin-tinyfish.svg)](https://pypi.org/project/hermes-plugin-tinyfish/)
-[![Python](https://img.shields.io/pypi/pyversions/hermes-plugin-tinyfish.svg)](https://pypi.org/project/hermes-plugin-tinyfish/)
+[![PyPI](https://img.shields.io/badge/PyPI-pending-lightgrey.svg)](https://github.com/gabeosx/hermes-plugin-tinyfish/releases)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/Security-policy-green.svg)](SECURITY.md)
 
 TinyFish web search and content extraction for [Hermes Agent](https://hermes-agent.nousresearch.com/docs/).
 
