@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   publish:
+    if: vars.PYPI_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     steps:
