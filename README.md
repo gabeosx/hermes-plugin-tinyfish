@@ -1,8 +1,8 @@
 # Hermes TinyFish Plugin
 
 [![CI](https://github.com/gabeosx/hermes-plugin-tinyfish/actions/workflows/ci.yml/badge.svg)](https://github.com/gabeosx/hermes-plugin-tinyfish/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/badge/PyPI-pending-lightgrey.svg)](https://github.com/gabeosx/hermes-plugin-tinyfish/releases)
-[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/hermes-plugin-tinyfish.svg)](https://pypi.org/project/hermes-plugin-tinyfish/)
+[![Python](https://img.shields.io/pypi/pyversions/hermes-plugin-tinyfish.svg)](https://pypi.org/project/hermes-plugin-tinyfish/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-policy-green.svg)](SECURITY.md)
 
@@ -25,11 +25,11 @@ Hermes' Git plugin installer currently clones the repository default branch.
 Stable release artifacts are published on the
 [GitHub Releases page](https://github.com/gabeosx/hermes-plugin-tinyfish/releases).
 
-PyPI install is planned after PyPI Trusted Publishing is configured:
+Python package artifacts are also published to PyPI for Hermes environments
+that load `hermes_agent.plugins` entry points:
 
 ```bash
 pip install hermes-plugin-tinyfish
-hermes plugins enable web-tinyfish
 hermes tinyfish setup
 ```
 
