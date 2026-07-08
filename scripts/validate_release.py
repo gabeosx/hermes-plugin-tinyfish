@@ -8,7 +8,10 @@ import pathlib
 import re
 import sys
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib
 
 
 class ReleaseValidationError(RuntimeError):
