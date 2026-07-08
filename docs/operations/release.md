@@ -115,6 +115,13 @@ section for that exact version. It uses only that version section as the GitHub
 Release body, builds wheel and sdist artifacts, creates a GitHub Release, and
 publishes to PyPI only when the repository variable enables PyPI publishing.
 
+If the GitHub Release succeeds but PyPI publishing is cancelled before the
+package upload, rerun the **Release** workflow manually with the existing tag.
+The manual dispatch checks out that tag, refreshes the GitHub Release assets,
+refuses to publish if that version is already present on PyPI, and then runs
+the PyPI Trusted Publishing step. Do not delete and recreate release tags for
+this recovery case.
+
 Release notes for capability releases should include:
 
 - Search/Fetch are the safe default entry point.

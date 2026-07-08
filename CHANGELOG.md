@@ -11,6 +11,8 @@ and this project uses semantic versioning.
 
 - Made the tag-based release workflow idempotent for existing GitHub Releases
   and prevented duplicate/fallback tag runs from proceeding into PyPI publish.
+- Added a manual PyPI release recovery path for cases where GitHub Release
+  creation succeeds but the PyPI publish job is cancelled before upload.
 
 ## [0.2.0] - 2026-07-08
 

@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, for example v0.2.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,10 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_preexisting: ${{ steps.release.outputs.preexisting }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-python@v6
         with:
@@ -29,7 +38,7 @@ jobs:
           python -m pip install build hatchling
 
       - name: Validate release metadata
-        run: python scripts/validate_release.py --tag "${GITHUB_REF_NAME}" --notes-path release-notes.md
+        run: python scripts/validate_release.py --tag "${RELEASE_TAG}" --notes-path release-notes.md
 
       - name: Build distributions
         run: python -m build
@@ -41,34 +50,65 @@ jobs:
         run: |
           set -euo pipefail
 
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             echo "preexisting=true" >> "${GITHUB_OUTPUT}"
-            gh release edit "${GITHUB_REF_NAME}" \
-              --title "${GITHUB_REF_NAME}" \
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
               --notes-file release-notes.md
-            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
           else
             echo "preexisting=false" >> "${GITHUB_OUTPUT}"
-            gh release create "${GITHUB_REF_NAME}" dist/* \
+            gh release create "${RELEASE_TAG}" dist/* \
               --verify-tag \
-              --title "${GITHUB_REF_NAME}" \
+              --title "${RELEASE_TAG}" \
               --notes-file release-notes.md
           fi
 
   publish-pypi:
-    if: vars.PYPI_PUBLISH_ENABLED == 'true' && needs.github-release.outputs.release_preexisting != 'true'
+    if: vars.PYPI_PUBLISH_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || needs.github-release.outputs.release_preexisting != 'true')
     needs: github-release
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       contents: read
       id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Refuse duplicate PyPI version
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+          url = f"https://pypi.org/pypi/hermes-plugin-tinyfish/{version}/json"
+
+          try:
+              with urllib.request.urlopen(url, timeout=15) as response:
+                  if response.status == 200:
+                      sys.exit(
+                          f"hermes-plugin-tinyfish {version} is already on PyPI; "
+                          "refusing duplicate publish."
+                      )
+          except urllib.error.HTTPError as exc:
+              if exc.code == 404:
+                  print(f"hermes-plugin-tinyfish {version} is not on PyPI yet; publishing.")
+              else:
+                  raise
+          PY
 
       - name: Build
         run: |
