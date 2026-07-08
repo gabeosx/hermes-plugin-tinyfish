@@ -89,10 +89,11 @@ def test_search_discovers_mcp_tools_before_rest(monkeypatch: pytest.MonkeyPatch)
 
 def test_search_falls_back_to_rest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
-    monkeypatch.setattr(
-        rest_client,
-        "search",
-        lambda query, *, api_key: {
+    seen: dict[str, object] = {}
+
+    def fake_search(query, *, api_key, **kwargs):
+        seen.update(kwargs)
+        return {
             "results": [
                 {
                     "title": f"REST {query}",
@@ -100,21 +101,49 @@ def test_search_falls_back_to_rest(monkeypatch: pytest.MonkeyPatch) -> None:
                     "snippet": api_key,
                 }
             ]
-        },
+        }
+
+    monkeypatch.setattr(
+        rest_client,
+        "search",
+        fake_search,
     )
 
     result = TinyFishWebSearchProvider().search("query", limit=1)
 
     assert result["success"] is True
     assert result["data"]["web"][0]["title"] == "REST query"
+    assert seen == {}
+
+
+def test_search_passes_config_options_to_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
+    monkeypatch.setattr(
+        provider_mod,
+        "search_options",
+        lambda: {"location": "US", "language": "en", "page": 2},
+    )
+    seen: dict[str, object] = {}
+
+    def fake_search(query, *, api_key, **kwargs):
+        seen.update(kwargs)
+        return {"results": [{"title": query, "url": "https://example.com", "snippet": api_key}]}
+
+    monkeypatch.setattr(rest_client, "search", fake_search)
+
+    result = TinyFishWebSearchProvider().search("query", limit=1)
+
+    assert result["success"] is True
+    assert seen == {"location": "US", "language": "en", "page": 2}
 
 
 def test_extract_falls_back_to_rest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
-    monkeypatch.setattr(
-        rest_client,
-        "fetch",
-        lambda urls, *, api_key, output_format: {
+    seen: dict[str, object] = {}
+
+    def fake_fetch(urls, *, api_key, output_format, **kwargs):
+        seen.update(kwargs)
+        return {
             "results": [
                 {
                     "url": urls[0],
@@ -123,13 +152,19 @@ def test_extract_falls_back_to_rest(monkeypatch: pytest.MonkeyPatch) -> None:
                 }
             ],
             "errors": [],
-        },
+        }
+
+    monkeypatch.setattr(
+        rest_client,
+        "fetch",
+        fake_fetch,
     )
 
     docs = TinyFishWebSearchProvider().extract(["https://example.com"], format="markdown")
 
     assert docs[0]["title"] == "markdown"
     assert docs[0]["content"] == "tf_test"
+    assert seen == {}
 
 
 def test_missing_configuration_returns_helpful_error() -> None:

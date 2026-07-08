@@ -1,0 +1,233 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+      bump: ${{ steps.decide.outputs.bump }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Decide release action
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+          import tomllib
+
+          root = pathlib.Path(".")
+          sha = os.environ["GITHUB_SHA"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          def output(**values: str) -> None:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  for key, value in values.items():
+                      fh.write(f"{key}={value}\n")
+
+          def gh_json(args: list[str]) -> object:
+              result = subprocess.run(
+                  ["gh", "api", *args],
+                  check=False,
+                  text=True,
+                  capture_output=True,
+              )
+              if result.returncode != 0:
+                  print(result.stderr, file=sys.stderr)
+                  return []
+              return json.loads(result.stdout or "[]")
+
+          with (root / "pyproject.toml").open("rb") as fh:
+              version = tomllib.load(fh)["project"]["version"]
+          tag = f"v{version}"
+
+          pulls = gh_json(
+              [
+                  f"/repos/{repo}/commits/{sha}/pulls",
+                  "-H",
+                  "Accept: application/vnd.github+json",
+              ]
+          )
+          pr = pulls[0] if isinstance(pulls, list) and pulls else {}
+          labels = {label.get("name", "") for label in pr.get("labels", []) if isinstance(label, dict)}
+          head_ref = ((pr.get("head") or {}).get("ref") or "") if isinstance(pr, dict) else ""
+          title = pr.get("title", "") if isinstance(pr, dict) else ""
+
+          changelog = (root / "CHANGELOG.md").read_text()
+          unreleased_match = re.search(r"(?ms)^## Unreleased\n(?P<body>.*?)(?=^## \[|\Z)", changelog)
+          unreleased_body = unreleased_match.group("body").strip() if unreleased_match else ""
+
+          if "release:none" in labels:
+              output(action="none", bump="", version=version, tag=tag)
+              print("release:none label present; skipping release automation.")
+              sys.exit(0)
+
+          if unreleased_body:
+              bump = "patch"
+              for candidate in ("major", "minor", "patch"):
+                  if f"release:{candidate}" in labels:
+                      bump = candidate
+                      break
+              output(action="prepare", bump=bump, version=version, tag=tag)
+              print(f"Unreleased changelog content found; preparing release PR with {bump} bump.")
+              sys.exit(0)
+
+          is_release_pr = head_ref.startswith("release/") or title.startswith("Release v")
+          if not is_release_pr:
+              output(action="none", bump="", version=version, tag=tag)
+              print("No unreleased content and this push is not from a release PR; skipping tag.")
+              sys.exit(0)
+
+          tag_exists = subprocess.run(
+              ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ).returncode == 0
+          if not tag_exists:
+              tag_exists = subprocess.run(
+                  ["git", "ls-remote", "--exit-code", "--tags", "origin", tag],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0
+
+          if tag_exists:
+              output(action="none", bump="", version=version, tag=tag)
+              print(f"{tag} already exists; skipping tag.")
+              sys.exit(0)
+
+          output(action="tag", bump="", version=version, tag=tag)
+          print(f"Release PR merged and {tag} does not exist; creating tag.")
+          PY
+
+  prepare-release-pr:
+    needs: decide
+    if: needs.decide.outputs.action == 'prepare'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Prepare release metadata
+        id: prep
+        run: python scripts/prepare_release.py --bump "${{ needs.decide.outputs.bump }}" --github-output
+
+      - name: Validate generated files
+        run: |
+          git diff --check
+          python -m pip install -U pip
+          python -m pip install build hatchling
+          python -m build
+
+      - name: Open release PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: release/${{ steps.prep.outputs.tag }}
+          title: Release ${{ steps.prep.outputs.tag }}
+          commit-message: Release ${{ steps.prep.outputs.tag }}
+          delete-branch: true
+          body: |
+            Automated release-prep PR for ${{ steps.prep.outputs.tag }}.
+
+            This PR was opened after a feature PR with non-empty `Unreleased`
+            changelog notes merged to `main`.
+
+            Auto Release will enable auto-merge for this PR. After it merges,
+            Auto Release will create and push the `${{ steps.prep.outputs.tag }}`
+            tag, create the GitHub Release, and run the gated PyPI publish job
+            when enabled.
+
+      - name: Enable auto-merge for release PR
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --squash --auto
+
+  tag-release:
+    needs: decide
+    if: needs.decide.outputs.action == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build and validate release
+        run: |
+          python -m pip install -U pip
+          python -m pip install build hatchling
+          python scripts/validate_release.py --tag "${{ needs.decide.outputs.tag }}" --notes-path release-notes.md
+          python -m build
+
+      - name: Create and push release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.decide.outputs.tag }}" -m "Release ${{ needs.decide.outputs.tag }}"
+          git push origin "${{ needs.decide.outputs.tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.decide.outputs.tag }}" dist/* \
+            --title "${{ needs.decide.outputs.tag }}" \
+            --notes-file release-notes.md
+
+  publish-pypi:
+    if: needs.decide.outputs.action == 'tag' && vars.PYPI_PUBLISH_ENABLED == 'true'
+    needs:
+      - decide
+      - tag-release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install -U pip
+          python -m pip install build
+          python -m build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1

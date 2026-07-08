@@ -26,15 +26,8 @@ jobs:
           python -m pip install -U pip
           python -m pip install build hatchling
 
-      - name: Validate tag matches package version
-        run: |
-          VERSION="$(python - <<'PY'
-          import tomllib
-          with open("pyproject.toml", "rb") as fh:
-              print(tomllib.load(fh)["project"]["version"])
-          PY
-          )"
-          test "v${VERSION}" = "${GITHUB_REF_NAME}"
+      - name: Validate release metadata
+        run: python scripts/validate_release.py --tag "${GITHUB_REF_NAME}" --notes-path release-notes.md
 
       - name: Build distributions
         run: python -m build
@@ -43,7 +36,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
-          body_path: CHANGELOG.md
+          body_path: release-notes.md
           generate_release_notes: true
 
   publish-pypi:

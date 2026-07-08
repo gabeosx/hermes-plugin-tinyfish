@@ -36,6 +36,9 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Python compatibility compile check
+        run: python -m compileall hermes_plugin_tinyfish scripts tests
+
       - name: Type check
         run: mypy hermes_plugin_tinyfish
 
