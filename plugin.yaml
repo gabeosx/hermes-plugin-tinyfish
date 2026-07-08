@@ -1,5 +1,5 @@
 name: web-tinyfish
-version: 0.1.4
+version: 0.2.0
 description: "Independent TinyFish provider plugin for Hermes Agent. Enables Search/Fetch by default with MCP-first routing and optional default-deny Agent, Browser, and Profile support behind credit policies."
 author: gabeosx
 kind: backend
