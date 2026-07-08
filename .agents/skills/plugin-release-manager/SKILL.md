@@ -21,10 +21,15 @@ needs updating.
 
 ## Version and changelog
 
-- Prefer the Prepare Release GitHub Actions workflow for release PRs. It
-  computes the next version, updates `pyproject.toml` and `plugin.yaml`,
-  promotes `CHANGELOG.md` `Unreleased` notes into a dated version section, and
-  opens the release PR.
+- Prefer the automated merge-to-release flow. Feature PRs with non-empty
+  `CHANGELOG.md` `Unreleased` notes trigger the Auto Release workflow after
+  merge, which opens a release-prep PR.
+- Add `release:patch`, `release:minor`, `release:major`, or `release:none` to
+  feature PRs when the default patch bump is not correct.
+- The release-prep PR computes the next version, updates `pyproject.toml` and
+  `plugin.yaml`, and promotes `CHANGELOG.md` `Unreleased` notes into a dated
+  version section. Merging that release PR automatically creates the tag,
+  GitHub Release, and PyPI publish job when enabled.
 - For manual release prep, bump semver consistently in `pyproject.toml` and
   `plugin.yaml`.
 - Move relevant `CHANGELOG.md` `Unreleased` notes into a dated release entry.
@@ -50,7 +55,8 @@ workflow.
 ## PR and release flow
 
 - Use PR flow for protected `main`.
-- After the release PR merges, create an annotated tag like `v0.1.5`.
+- After the release PR merges, verify the Auto Release workflow creates an
+  annotated tag like `v0.1.5` and a GitHub Release with wheel and sdist assets.
 - Push the tag to trigger the release workflow.
 - Verify GitHub Release assets include both wheel and sdist.
 - Verify PyPI only after the publish workflow completes and PyPI publishing is

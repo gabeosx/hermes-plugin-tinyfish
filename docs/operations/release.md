@@ -35,11 +35,30 @@ Then choose the intended semantic version bump.
 
 ## Prepare the Release PR
 
-Use the **Prepare Release** GitHub Actions workflow for normal releases. Choose
-a `patch`, `minor`, or `major` bump, or pass an explicit version such as
-`0.2.0`.
+Normal releases are automated after PR merge:
 
-The workflow:
+1. Put user-facing release notes under `CHANGELOG.md` `Unreleased`.
+2. Add one optional PR label before merging:
+   - `release:patch`
+   - `release:minor`
+   - `release:major`
+   - `release:none`
+3. Merge the feature PR.
+
+After merge, the **Auto Release** workflow opens a release-prep PR when
+`Unreleased` has content. It defaults to `release:patch` if no release label is
+present.
+
+After the generated release-prep PR merges, **Auto Release** validates release
+metadata, builds artifacts, creates and pushes the matching `vX.Y.Z` tag,
+creates the GitHub Release, and publishes to PyPI when
+`PYPI_PUBLISH_ENABLED == true`.
+
+Use the **Prepare Release Manually** workflow only when a release PR needs to be
+created outside the normal feature-PR flow. Choose a `patch`, `minor`, or
+`major` bump, or pass an explicit version such as `0.2.0`.
+
+The prepare-release workflow:
 
 - computes the next version when only a bump is supplied;
 - updates `pyproject.toml`;
@@ -47,7 +66,7 @@ The workflow:
 - moves the current `CHANGELOG.md` `Unreleased` notes into a dated version
   section;
 - validates the generated files; and
-- opens a release PR.
+- opens a release PR. Merging that release PR triggers automatic tag creation.
 
 For local/manual release preparation, make the same edits:
 
@@ -73,19 +92,22 @@ python3 -m pytest
 rm -rf dist && python3 -m build
 ```
 
-Use a PR for protected `main`. Do not tag until the release PR has merged.
+Use a PR for protected `main`. Do not create tags or GitHub Releases by hand in
+the normal flow.
 
 ## Tag and Publish
 
-After the generated release PR is merged, create an annotated tag matching the
-package version:
+Manual tagging is only needed if automation is disabled or a release must be
+recovered by hand. In that case, build the artifacts, create the GitHub Release,
+and create an annotated tag matching the package version:
 
 ```bash
 git tag -a v0.1.5 -m "Release v0.1.5"
 git push origin v0.1.5
 ```
 
-The release workflow validates that the tag matches `pyproject.toml`, that
+The tag-based release workflow remains available for manually pushed tags. It
+validates that the tag matches `pyproject.toml`, that
 `plugin.yaml` has the same version, and that `CHANGELOG.md` contains a dated
 section for that exact version. It uses only that version section as the GitHub
 Release body, builds wheel and sdist artifacts, creates a GitHub Release, and

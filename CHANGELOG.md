@@ -21,6 +21,11 @@ and this project uses semantic versioning.
 - Added a manual Prepare Release workflow that computes the next version,
   promotes `Unreleased` changelog notes into a dated release section, updates
   package metadata, and opens a release PR.
+- Added an Auto Release workflow so feature PR merges automatically create a
+  release-prep PR and release-prep PR merges automatically create the release
+  tag.
+- Added shared release validation and release-note extraction used by both
+  manual tag releases and automated post-merge releases.
 
 ### Changed
 
