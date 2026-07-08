@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.2.1] - 2026-07-08
+
 ### Changed
 
 - Made the tag-based release workflow idempotent for existing GitHub Releases
