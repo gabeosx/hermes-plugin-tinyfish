@@ -27,6 +27,16 @@ plugin.
 - Keep GitHub plugin install/update as the primary Hermes-native user path.
 - Keep PyPI as a secondary package channel.
 
+## Python compatibility
+
+- Maintain Python 3.10 compatibility. The package declares
+  `requires-python = ">=3.10"`, so Python 3.10 is the floor agents must target.
+- Do not use Python 3.11+ syntax or standard-library APIs without a fallback or
+  guard. For example, `tomllib` requires a `tomli` fallback.
+- Keep static tooling aligned to Python 3.10: Ruff `target-version = "py310"`
+  and mypy `python_version = "3.10"`.
+- Prefer adding a focused test or CI check when a compatibility issue is found.
+
 ## TinyFish routing constraints
 
 Preserve MCP-first behavior:
@@ -54,6 +64,7 @@ environment blocker prevents it:
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
+python3 -m compileall hermes_plugin_tinyfish scripts tests
 python3 -m mypy hermes_plugin_tinyfish
 python3 -m pytest
 python3 -m build

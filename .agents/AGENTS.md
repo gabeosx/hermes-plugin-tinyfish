@@ -21,6 +21,19 @@ Optional local workspace:
 - Preserve upgrade safety by using Hermes plugin, provider, CLI, MCP, and config
   extension points.
 
+## Python compatibility
+
+- Python 3.10 is the compatibility floor because `pyproject.toml` declares
+  `requires-python = ">=3.10"`.
+- Do not use syntax, standard-library modules, or typing features introduced
+  after Python 3.10 unless the code has a Python 3.10 fallback or guard.
+- Common examples:
+  - Use `tomllib` only behind a `tomli` fallback.
+  - Avoid `except*`, exception groups, and other Python 3.11+ syntax.
+  - Avoid Python 3.11+ typing syntax unless it is compatible with Python 3.10
+    under `from __future__ import annotations` and current tooling.
+- Run or rely on the CI matrix for Python 3.10, 3.11, and 3.12 before merging.
+
 ## Skill routing
 
 Before substantive work, inspect `.agents/skills/` and use the most specific
@@ -89,6 +102,7 @@ Useful local verification:
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
+python3 -m compileall hermes_plugin_tinyfish scripts tests
 python3 -m mypy hermes_plugin_tinyfish
 python3 -m pytest
 python3 -m build

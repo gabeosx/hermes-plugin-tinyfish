@@ -29,6 +29,8 @@ and this project uses semantic versioning.
   auto-merge is enabled.
 - Added shared release validation and release-note extraction used by both
   manual tag releases and automated post-merge releases.
+- Added Python 3.10 compatibility guidance for coding agents and a CI
+  `compileall` check across package code, scripts, and tests.
 
 ### Changed
 
