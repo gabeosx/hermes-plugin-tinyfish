@@ -23,13 +23,13 @@ needs updating.
 
 - Prefer the automated merge-to-release flow. Feature PRs with non-empty
   `CHANGELOG.md` `Unreleased` notes trigger the Auto Release workflow after
-  merge, which opens a release-prep PR.
+  merge, which opens a release-prep PR and enables auto-merge for it.
 - Add `release:patch`, `release:minor`, `release:major`, or `release:none` to
   feature PRs when the default patch bump is not correct.
 - The release-prep PR computes the next version, updates `pyproject.toml` and
   `plugin.yaml`, and promotes `CHANGELOG.md` `Unreleased` notes into a dated
-  version section. Merging that release PR automatically creates the tag,
-  GitHub Release, and PyPI publish job when enabled.
+  version section. When that release PR auto-merges, Auto Release creates the
+  tag, GitHub Release, and PyPI publish job when enabled.
 - For manual release prep, bump semver consistently in `pyproject.toml` and
   `plugin.yaml`.
 - Move relevant `CHANGELOG.md` `Unreleased` notes into a dated release entry.

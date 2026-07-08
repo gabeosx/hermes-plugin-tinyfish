@@ -46,12 +46,13 @@ Normal releases are automated after PR merge:
 3. Merge the feature PR.
 
 After merge, the **Auto Release** workflow opens a release-prep PR when
-`Unreleased` has content. It defaults to `release:patch` if no release label is
-present.
+`Unreleased` has content and enables GitHub auto-merge for that PR. It defaults
+to `release:patch` if no release label is present. Repository auto-merge must
+be enabled for this to complete without human intervention.
 
-After the generated release-prep PR merges, **Auto Release** validates release
-metadata, builds artifacts, creates and pushes the matching `vX.Y.Z` tag,
-creates the GitHub Release, and publishes to PyPI when
+After the generated release-prep PR auto-merges, **Auto Release** validates
+release metadata, builds artifacts, creates and pushes the matching `vX.Y.Z`
+tag, creates the GitHub Release, and publishes to PyPI when
 `PYPI_PUBLISH_ENABLED == true`.
 
 Use the **Prepare Release Manually** workflow only when a release PR needs to be
@@ -66,7 +67,8 @@ The prepare-release workflow:
 - moves the current `CHANGELOG.md` `Unreleased` notes into a dated version
   section;
 - validates the generated files; and
-- opens a release PR. Merging that release PR triggers automatic tag creation.
+- opens a release PR and enables auto-merge. Merging that release PR triggers
+  automatic tag creation.
 
 For local/manual release preparation, make the same edits:
 

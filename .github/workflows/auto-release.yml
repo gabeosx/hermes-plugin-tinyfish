@@ -147,21 +147,29 @@ jobs:
           python -m build
 
       - name: Open release PR
+        id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
           branch: release/${{ steps.prep.outputs.tag }}
           title: Release ${{ steps.prep.outputs.tag }}
           commit-message: Release ${{ steps.prep.outputs.tag }}
+          delete-branch: true
           body: |
             Automated release-prep PR for ${{ steps.prep.outputs.tag }}.
 
             This PR was opened after a feature PR with non-empty `Unreleased`
             changelog notes merged to `main`.
 
-            Merging this PR will automatically create and push the
-            `${{ steps.prep.outputs.tag }}` tag. The tag will trigger the
-            Release workflow, which builds artifacts and publishes the GitHub
-            Release.
+            Auto Release will enable auto-merge for this PR. After it merges,
+            Auto Release will create and push the `${{ steps.prep.outputs.tag }}`
+            tag, create the GitHub Release, and run the gated PyPI publish job
+            when enabled.
+
+      - name: Enable auto-merge for release PR
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --squash --auto
 
   tag-release:
     needs: decide

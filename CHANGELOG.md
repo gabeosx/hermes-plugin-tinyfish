@@ -24,6 +24,9 @@ and this project uses semantic versioning.
 - Added an Auto Release workflow so feature PR merges automatically create a
   release-prep PR and release-prep PR merges automatically create the release
   tag.
+- Enabled auto-merge for generated release-prep PRs so the post-feature-merge
+  release path can run without additional maintainer steps when repository
+  auto-merge is enabled.
 - Added shared release validation and release-note extraction used by both
   manual tag releases and automated post-merge releases.
 
