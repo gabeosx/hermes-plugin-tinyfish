@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover - lets package import outside Hermes
 
 
 from . import rest_client
+from .config import default_fetch_format, fetch_options, search_options
 from .normalize import TinyFishPayloadError, normalize_fetch_documents, normalize_search_response
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
             }
 
         try:
-            raw = rest_client.search(query, api_key=api_key)
+            raw = rest_client.search(query, api_key=api_key, **search_options())
             return normalize_search_response(raw, limit=limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("TinyFish REST search failed: %s", exc)
@@ -223,7 +224,7 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
         except Exception:
             pass
 
-        output_format = str(kwargs.get("format") or kwargs.get("output_format") or "markdown")
+        output_format = str(kwargs.get("format") or kwargs.get("output_format") or default_fetch_format())
         mcp_error = ""
         try:
             payload = self._call_mcp(
@@ -254,7 +255,12 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
             ]
 
         try:
-            raw = rest_client.fetch(urls, api_key=api_key, output_format=output_format)
+            raw = rest_client.fetch(
+                urls,
+                api_key=api_key,
+                output_format=output_format,
+                **fetch_options(),
+            )
             return normalize_fetch_documents(raw, fallback_urls=urls)
         except Exception as exc:  # noqa: BLE001
             logger.warning("TinyFish REST fetch failed: %s", exc)

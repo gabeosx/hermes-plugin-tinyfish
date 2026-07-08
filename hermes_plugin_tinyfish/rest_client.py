@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import httpx
 
 SEARCH_URL = "https://api.search.tinyfish.ai"
 FETCH_URL = "https://api.fetch.tinyfish.ai"
+BROWSER_URL = "https://api.browser.tinyfish.ai"
+AGENT_BASE_URL = "https://agent.tinyfish.ai/v1"
 
 
 class TinyFishRestError(RuntimeError):
@@ -18,20 +20,62 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key, "Accept": "application/json"}
 
 
-def search(query: str, *, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+def _json_headers(api_key: str) -> dict[str, str]:
+    headers = _headers(api_key)
+    headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _raise_http_error(service: str, exc: httpx.HTTPStatusError) -> NoReturn:
+    status = exc.response.status_code
+    if status == 402:
+        raise TinyFishRestError(
+            f"{service} returned HTTP 402. TinyFish credits or billing may be required."
+        ) from exc
+    raise TinyFishRestError(f"{service} returned HTTP {status}") from exc
+
+
+def search(
+    query: str,
+    *,
+    api_key: str,
+    timeout: float = 30.0,
+    location: str | None = None,
+    language: str | None = None,
+    recency_minutes: int | None = None,
+    after_date: str | None = None,
+    before_date: str | None = None,
+    domain_type: str | None = None,
+    page: int | None = None,
+    purpose: str | None = None,
+) -> dict[str, Any]:
     """Run a TinyFish Search API query."""
+
+    params: dict[str, Any] = {"query": query}
+    for key, value in {
+        "location": location,
+        "language": language,
+        "recency_minutes": recency_minutes,
+        "after_date": after_date,
+        "before_date": before_date,
+        "domain_type": domain_type,
+        "page": page,
+        "purpose": purpose,
+    }.items():
+        if value is not None and value != "":
+            params[key] = value
 
     try:
         response = httpx.get(
             SEARCH_URL,
-            params={"query": query},
+            params=params,
             headers=_headers(api_key),
             timeout=timeout,
         )
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
     except httpx.HTTPStatusError as exc:
-        raise TinyFishRestError(f"TinyFish Search returned HTTP {exc.response.status_code}") from exc
+        _raise_http_error("TinyFish Search", exc)
     except httpx.RequestError as exc:
         raise TinyFishRestError(f"Could not reach TinyFish Search: {exc}") from exc
     except ValueError as exc:
@@ -43,22 +87,210 @@ def fetch(
     *,
     api_key: str,
     output_format: str = "markdown",
+    links: bool | None = None,
+    image_links: bool | None = None,
+    ttl: int | None = None,
+    per_url_timeout_ms: int | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Run the TinyFish Fetch API for one or more URLs."""
 
+    body: dict[str, Any] = {"urls": urls, "format": output_format}
+    for key, value in {
+        "links": links,
+        "image_links": image_links,
+        "ttl": ttl,
+        "per_url_timeout_ms": per_url_timeout_ms,
+    }.items():
+        if value is not None:
+            body[key] = value
+
     try:
         response = httpx.post(
             FETCH_URL,
-            json={"urls": urls, "format": output_format},
-            headers=_headers(api_key),
+            json=body,
+            headers=_json_headers(api_key),
             timeout=timeout,
         )
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
     except httpx.HTTPStatusError as exc:
-        raise TinyFishRestError(f"TinyFish Fetch returned HTTP {exc.response.status_code}") from exc
+        _raise_http_error("TinyFish Fetch", exc)
     except httpx.RequestError as exc:
         raise TinyFishRestError(f"Could not reach TinyFish Fetch: {exc}") from exc
     except ValueError as exc:
         raise TinyFishRestError("TinyFish Fetch returned invalid JSON") from exc
+
+
+def create_browser_session(
+    *,
+    api_key: str,
+    url: str | None = None,
+    timeout_seconds: int | None = None,
+    timeout: float = 90.0,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if url:
+        body["url"] = url
+    if timeout_seconds is not None:
+        body["timeout_seconds"] = timeout_seconds
+    try:
+        response = httpx.post(BROWSER_URL, json=body, headers=_json_headers(api_key), timeout=timeout)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPStatusError as exc:
+        _raise_http_error("TinyFish Browser", exc)
+    except httpx.RequestError as exc:
+        raise TinyFishRestError(f"Could not reach TinyFish Browser: {exc}") from exc
+    except ValueError as exc:
+        raise TinyFishRestError("TinyFish Browser returned invalid JSON") from exc
+
+
+def close_browser_session(session_id: str, *, api_key: str, timeout: float = 15.0) -> bool:
+    try:
+        response = httpx.delete(f"{BROWSER_URL}/{session_id}", headers=_headers(api_key), timeout=timeout)
+        return response.status_code in {200, 201, 202, 204, 404}
+    except httpx.RequestError:
+        return False
+
+
+def agent_run(
+    *,
+    api_key: str,
+    url: str,
+    goal: str,
+    use_profile: bool | None = None,
+    profile_id: str | None = None,
+    webhook_url: str | None = None,
+    timeout: float = 300.0,
+) -> dict[str, Any]:
+    body = _agent_body(
+        url=url, goal=goal, use_profile=use_profile, profile_id=profile_id, webhook_url=webhook_url
+    )
+    return _post_agent("/automation/run", body, api_key=api_key, timeout=timeout)
+
+
+def agent_run_async(
+    *,
+    api_key: str,
+    url: str,
+    goal: str,
+    use_profile: bool | None = None,
+    profile_id: str | None = None,
+    webhook_url: str | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    body = _agent_body(
+        url=url, goal=goal, use_profile=use_profile, profile_id=profile_id, webhook_url=webhook_url
+    )
+    return _post_agent("/automation/run-async", body, api_key=api_key, timeout=timeout)
+
+
+def _agent_body(
+    *,
+    url: str,
+    goal: str,
+    use_profile: bool | None = None,
+    profile_id: str | None = None,
+    webhook_url: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"url": url, "goal": goal}
+    if use_profile is not None:
+        body["use_profile"] = use_profile
+    if profile_id:
+        body["profile_id"] = profile_id
+    if webhook_url:
+        body["webhook_url"] = webhook_url
+    return body
+
+
+def agent_status(run_id: str, *, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    return _get_agent(f"/runs/{run_id}", api_key=api_key, timeout=timeout)
+
+
+def agent_cancel(run_id: str, *, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    return _post_agent(f"/runs/{run_id}/cancel", {}, api_key=api_key, timeout=timeout)
+
+
+def profiles_list(*, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    return _get_agent("/profiles", api_key=api_key, timeout=timeout)
+
+
+def profile_create(
+    *,
+    api_key: str,
+    name: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    return _post_agent("/profiles", {"name": name}, api_key=api_key, timeout=timeout)
+
+
+def profile_setup_session(
+    profile_id: str,
+    *,
+    api_key: str,
+    timeout: float = 90.0,
+) -> dict[str, Any]:
+    return _post_agent(f"/profiles/{profile_id}/setup-session", {}, api_key=api_key, timeout=timeout)
+
+
+def profile_save_setup(
+    profile_id: str,
+    session_id: str,
+    *,
+    api_key: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    return _post_agent(
+        f"/profiles/{profile_id}/save", {"session_id": session_id}, api_key=api_key, timeout=timeout
+    )
+
+
+def profile_cancel_setup(
+    profile_id: str,
+    session_id: str,
+    *,
+    api_key: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    return _post_agent(
+        f"/profiles/{profile_id}/setup-session/cancel",
+        {"session_id": session_id},
+        api_key=api_key,
+        timeout=timeout,
+    )
+
+
+def usage(*, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    return _get_agent("/usage", api_key=api_key, timeout=timeout)
+
+
+def _get_agent(path: str, *, api_key: str, timeout: float) -> dict[str, Any]:
+    try:
+        response = httpx.get(f"{AGENT_BASE_URL}{path}", headers=_headers(api_key), timeout=timeout)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPStatusError as exc:
+        _raise_http_error("TinyFish Agent", exc)
+    except httpx.RequestError as exc:
+        raise TinyFishRestError(f"Could not reach TinyFish Agent: {exc}") from exc
+    except ValueError as exc:
+        raise TinyFishRestError("TinyFish Agent returned invalid JSON") from exc
+
+
+def _post_agent(path: str, body: dict[str, Any], *, api_key: str, timeout: float) -> dict[str, Any]:
+    try:
+        response = httpx.post(
+            f"{AGENT_BASE_URL}{path}",
+            json=body,
+            headers=_json_headers(api_key),
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPStatusError as exc:
+        _raise_http_error("TinyFish Agent", exc)
+    except httpx.RequestError as exc:
+        raise TinyFishRestError(f"Could not reach TinyFish Agent: {exc}") from exc
+    except ValueError as exc:
+        raise TinyFishRestError("TinyFish Agent returned invalid JSON") from exc

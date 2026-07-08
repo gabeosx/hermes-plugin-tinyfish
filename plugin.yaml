@@ -1,9 +1,11 @@
 name: web-tinyfish
 version: 0.1.4
-description: "TinyFish web search and content extraction provider for Hermes Agent. Prefers TinyFish hosted MCP OAuth and falls back to TINYFISH_API_KEY REST calls."
+description: "Independent TinyFish provider plugin for Hermes Agent. Enables Search/Fetch by default with MCP-first routing and optional default-deny Agent, Browser, and Profile support behind credit policies."
 author: gabeosx
 kind: backend
 provides_web_providers:
+  - tinyfish
+provides_browser_providers:
   - tinyfish
 homepage: "https://github.com/gabeosx/hermes-plugin-tinyfish"
 license: MIT

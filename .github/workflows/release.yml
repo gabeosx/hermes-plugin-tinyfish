@@ -26,15 +26,58 @@ jobs:
           python -m pip install -U pip
           python -m pip install build hatchling
 
-      - name: Validate tag matches package version
+      - name: Validate release metadata
         run: |
-          VERSION="$(python - <<'PY'
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
           import tomllib
-          with open("pyproject.toml", "rb") as fh:
-              print(tomllib.load(fh)["project"]["version"])
+
+          root = pathlib.Path(".")
+          with (root / "pyproject.toml").open("rb") as fh:
+              version = tomllib.load(fh)["project"]["version"]
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected_tag = f"v{version}"
+          if tag != expected_tag:
+              print(f"Tag {tag!r} does not match pyproject version {version!r}; expected {expected_tag!r}")
+              sys.exit(1)
+
+          plugin_yaml = (root / "plugin.yaml").read_text()
+          plugin_match = re.search(r"^version:\s*['\"]?([^'\"\s#]+)", plugin_yaml, re.MULTILINE)
+          if not plugin_match:
+              print("plugin.yaml is missing a top-level version")
+              sys.exit(1)
+          plugin_version = plugin_match.group(1)
+          if plugin_version != version:
+              print(f"plugin.yaml version {plugin_version!r} does not match pyproject version {version!r}")
+              sys.exit(1)
+
+          changelog = (root / "CHANGELOG.md").read_text()
+          pattern = (
+              rf"^## \[{re.escape(version)}\] - "
+              rf"\d{{4}}-\d{{2}}-\d{{2}}\n"
+              rf"(?P<body>.*?)(?=^## \[|\Z)"
+          )
+          match = re.search(pattern, changelog, re.MULTILINE | re.DOTALL)
+          if not match:
+              print(
+                  "CHANGELOG.md must contain a dated section for this release, "
+                  f"for example: ## [{version}] - YYYY-MM-DD"
+              )
+              sys.exit(1)
+
+          heading_match = re.search(
+              rf"^## \[{re.escape(version)}\] - (\d{{4}}-\d{{2}}-\d{{2}})",
+              changelog,
+              re.MULTILINE,
+          )
+          release_notes = f"## [{version}] - {heading_match.group(1)}\n"
+          release_notes += match.group("body").strip() + "\n"
+          (root / "release-notes.md").write_text(release_notes)
           PY
-          )"
-          test "v${VERSION}" = "${GITHUB_REF_NAME}"
 
       - name: Build distributions
         run: python -m build
@@ -43,7 +86,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
-          body_path: CHANGELOG.md
+          body_path: release-notes.md
           generate_release_notes: true
 
   publish-pypi:
