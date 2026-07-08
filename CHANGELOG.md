@@ -7,6 +7,11 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Changed
+
+- Made the tag-based release workflow idempotent for existing GitHub Releases
+  and prevented duplicate/fallback tag runs from proceeding into PyPI publish.
+
 ## [0.2.0] - 2026-07-08
 
 ### Added

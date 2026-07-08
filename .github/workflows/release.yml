@@ -11,6 +11,8 @@ permissions:
 jobs:
   github-release:
     runs-on: ubuntu-latest
+    outputs:
+      release_preexisting: ${{ steps.release.outputs.preexisting }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,15 +34,29 @@ jobs:
       - name: Build distributions
         run: python -m build
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*
-          body_path: release-notes.md
-          generate_release_notes: true
+      - name: Create or refresh GitHub Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "preexisting=true" >> "${GITHUB_OUTPUT}"
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
+            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          else
+            echo "preexisting=false" >> "${GITHUB_OUTPUT}"
+            gh release create "${GITHUB_REF_NAME}" dist/* \
+              --verify-tag \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
+          fi
 
   publish-pypi:
-    if: vars.PYPI_PUBLISH_ENABLED == 'true'
+    if: vars.PYPI_PUBLISH_ENABLED == 'true' && needs.github-release.outputs.release_preexisting != 'true'
     needs: github-release
     runs-on: ubuntu-latest
     environment: pypi
