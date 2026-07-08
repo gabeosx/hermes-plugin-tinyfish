@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.2.0] - 2026-07-08
+
 ### Added
 
 - Added default-deny TinyFish credit policies for Agent, Browser, Browser
