@@ -1,6 +1,6 @@
 # Hermes Extension Points
 
-This plugin should remain upgrade-safe by using public Hermes extension points
+This plugin remains upgrade-safe by using public Hermes extension points
 instead of modifying Hermes core.
 
 ## Used by This Plugin
@@ -9,18 +9,20 @@ instead of modifying Hermes core.
   Hermes Git plugin install/update.
 - Web provider registration through `ctx.register_web_search_provider(...)`.
 - Browser provider registration through `ctx.register_browser_provider(...)`.
-- Optional model-callable Agent tools through `ctx.register_tool(...)`.
-- Credit policy enforcement through `ctx.register_hook("pre_tool_call", ...)`
-  and Hermes' existing plugin approval directives.
+- Browser credit policy enforcement through
+  `ctx.register_hook("pre_tool_call", ...)` and Hermes approval directives.
 - CLI registration through `ctx.register_cli_command(...)`.
 - MCP server configuration under Hermes `mcp_servers`.
 - Optional API-key fallback through Hermes environment helpers and
   `TINYFISH_API_KEY`.
 
+The plugin does not call `ctx.register_tool(...)`: Hermes is the agent, and no
+TinyFish Agent tools are model-callable through this plugin.
+
 ## User Configuration
 
-The plugin should write normal user configuration only. It should not edit
-Hermes source files, Dockerfiles, update scripts, or bundled provider code.
+The plugin writes ordinary user configuration only. It does not edit Hermes
+source files, Dockerfiles, update scripts, or bundled provider code.
 
 Expected web provider selection:
 
@@ -30,34 +32,35 @@ web:
   extract_backend: tinyfish
 ```
 
-Expected TinyFish MCP server:
+Expected plugin-managed MCP server:
 
 ```yaml
 mcp_servers:
   tinyfish:
     url: https://agent.tinyfish.ai/mcp
     auth: oauth
+    tools:
+      include: [search, fetch_content]
+      resources: false
+      prompts: false
 ```
 
-Credit-risking capabilities are denied by default:
+TinyFish Browser is credit-risking and denied by default:
 
 ```yaml
 tinyfish:
   credit_policy:
-    agent: deny
     browser: deny
-    profile_setup: deny
-    model_tools: deny
 ```
 
-Users may set a feature to `request` to use Hermes' approval flow per
-invocation, or `allow` for blanket approval.
+Users may set Browser to `request` for Hermes approval on each `browser_*` tool
+invocation or `allow` for blanket approval.
 
 ## Runtime Discovery
 
 Hermes currently supports runtime plugin discovery. It does not provide a full
-public marketplace/search index for this plugin, so installation docs should use
-the repository identifier directly:
+public marketplace/search index for this plugin, so installation docs use the
+repository identifier directly:
 
 ```bash
 hermes plugins install gabeosx/hermes-plugin-tinyfish --enable

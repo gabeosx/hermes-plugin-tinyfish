@@ -14,10 +14,12 @@ from . import rest_client
 from .config import (
     CREDIT_FEATURES,
     CREDIT_POLICIES,
+    RETIRED_CREDIT_POLICY_KEYS,
     credit_policy_summary,
     normalize_feature,
     normalize_policy,
     reset_credit_policies,
+    retired_credit_policy_keys,
     set_credit_policy,
 )
 from .credit_policy import INDEPENDENT_NOTICE, PRICING_NOTICE, request_credit_approval
@@ -57,7 +59,7 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     doctor.add_argument(
         "--live-paid",
         action="store_true",
-        help="Run credit-risking Agent/Browser checks according to TinyFish credit policies",
+        help="Create and close a TinyFish Browser session according to its credit policy",
     )
 
     status = sub.add_parser("status", help="Print non-secret TinyFish configuration status")
@@ -68,54 +70,12 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     credits_status = credits_sub.add_parser("status", help="Show TinyFish credit policy status")
     credits_status.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     credits_set = credits_sub.add_parser("set", help="Set a feature policy: deny, request, or allow")
-    credits_set.add_argument("feature", choices=["agent", "browser", "profile-setup", "model-tools"])
+    credits_set.add_argument("feature", choices=list(CREDIT_FEATURES))
     credits_set.add_argument("policy", choices=list(CREDIT_POLICIES))
-    credits_sub.add_parser("reset", help="Reset all credit-risking features to deny")
+    credits_sub.add_parser("reset", help="Reset Browser to deny and remove retired Agent/Profile policy keys")
 
-    usage = sub.add_parser(
-        "usage", help="Read TinyFish usage/quota information when the endpoint is available"
-    )
+    usage = sub.add_parser("usage", help="Read TinyFish Fetch operation history")
     usage.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-
-    agent = sub.add_parser("agent", help="Run or manage TinyFish Agent API automations")
-    agent_sub = agent.add_subparsers(dest="agent_command")
-    for name, help_text in (
-        ("run", "Run a blocking TinyFish Agent automation"),
-        ("run-async", "Start an async TinyFish Agent automation"),
-    ):
-        run = agent_sub.add_parser(name, help=help_text)
-        run.add_argument("--url", required=True, help="Starting URL")
-        run.add_argument("--goal", required=True, help="Natural-language goal")
-        run.add_argument("--use-profile", action="store_true", help="Use a saved Browser Context Profile")
-        run.add_argument("--profile-id", help="Specific Browser Context Profile ID")
-        run.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    agent_status = agent_sub.add_parser("status", help="Fetch an Agent run by run_id")
-    agent_status.add_argument("run_id")
-    agent_status.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    agent_cancel = agent_sub.add_parser("cancel", help="Cancel an Agent run by run_id")
-    agent_cancel.add_argument("run_id")
-    agent_cancel.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-
-    profiles = sub.add_parser("profiles", help="Manage TinyFish Browser Context Profiles")
-    profiles_sub = profiles.add_subparsers(dest="profiles_command")
-    profiles_list = profiles_sub.add_parser("list", help="List Browser Context Profiles")
-    profiles_list.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    profiles_create = profiles_sub.add_parser("create", help="Create a Browser Context Profile")
-    profiles_create.add_argument("--name", required=True)
-    profiles_create.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    profiles_setup = profiles_sub.add_parser(
-        "setup-session", help="Start a credit-risking profile setup browser"
-    )
-    profiles_setup.add_argument("profile_id")
-    profiles_setup.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    profiles_save = profiles_sub.add_parser("save-setup", help="Save a profile setup session")
-    profiles_save.add_argument("profile_id")
-    profiles_save.add_argument("--session-id", required=True)
-    profiles_save.add_argument("--json", action="store_true", help="Print machine-readable JSON")
-    profiles_cancel = profiles_sub.add_parser("cancel-setup", help="Cancel a profile setup session")
-    profiles_cancel.add_argument("profile_id")
-    profiles_cancel.add_argument("--session-id", required=True)
-    profiles_cancel.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
 
 def dispatch_tinyfish_cli(args: argparse.Namespace) -> int:
@@ -130,11 +90,7 @@ def dispatch_tinyfish_cli(args: argparse.Namespace) -> int:
         return cmd_credits(args)
     if command == "usage":
         return cmd_usage(args)
-    if command == "agent":
-        return cmd_agent(args)
-    if command == "profiles":
-        return cmd_profiles(args)
-    print("Usage: hermes tinyfish {setup,doctor,status,credits,usage,agent,profiles}", file=sys.stderr)
+    print("Usage: hermes tinyfish {setup,doctor,status,credits,usage}", file=sys.stderr)
     return 2
 
 
@@ -280,14 +236,18 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return cmd_doctor(doctor_args)
 
     print("Run `hermes tinyfish doctor --live` to verify the setup.")
-    print("Credit-risking TinyFish Agent, Browser, and Profile setup features remain policy-denied.")
+    browser_policy = credit_policy_summary(config)["browser"]
+    print(
+        "Credit-risking TinyFish Browser sessions are governed by the browser policy "
+        f"(current: {browser_policy}; default: deny)."
+    )
     return 0
 
 
 def _tool_names(*, discover_mcp: bool = False) -> set[str]:
-    if discover_mcp:
-        _discover_tinyfish_mcp_tools()
     try:
+        if discover_mcp:
+            _discover_tinyfish_mcp_tools()
         from tools.registry import registry
 
         return set(registry.get_all_tool_names())
@@ -313,6 +273,7 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
         "mcp_token_cached": token_path.exists(),
         "api_key_fallback_configured": api_key_configured,
         "credit_policy": credit_policy_summary(config),
+        "retired_credit_policy_keys": retired_credit_policy_keys(config),
         "independent_plugin_notice": INDEPENDENT_NOTICE,
         "pricing_notice": PRICING_NOTICE,
         "web_search_backend": web_cfg.get("search_backend") or web_cfg.get("backend") or "",
@@ -326,16 +287,38 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
         checks["web_search_backend"] == "tinyfish" and checks["web_extract_backend"] == "tinyfish"
     )
 
-    if live:
-        search = provider.search("TinyFish web agent", limit=1)
-        checks["live_search_ok"] = bool(search.get("success") and search.get("data", {}).get("web"))
-        fetch = provider.extract(["https://docs.tinyfish.ai/"], format="markdown")
-        checks["live_fetch_ok"] = bool(fetch and not fetch[0].get("error"))
-
-    checks["ok"] = bool(
+    configured_ok = bool(
         checks["web_backend_configured"]
         and (checks["mcp_configured"] or checks["api_key_fallback_configured"])
     )
+    checks["ok"] = configured_ok
+
+    if live:
+        try:
+            search = provider.search("TinyFish web agent", limit=1)
+            checks["live_search_ok"] = bool(search.get("success") and search.get("data", {}).get("web"))
+            if not checks["live_search_ok"]:
+                checks["live_search_error"] = str(
+                    search.get("error") or "TinyFish Search returned no web results."
+                )
+        except Exception as exc:  # noqa: BLE001
+            checks["live_search_ok"] = False
+            checks["live_search_error"] = f"{type(exc).__name__}: {exc}"
+
+        try:
+            fetch = provider.extract(["https://docs.tinyfish.ai/"], format="markdown")
+            extracted_content = ""
+            if fetch:
+                extracted_content = str(fetch[0].get("content") or fetch[0].get("raw_content") or "").strip()
+            checks["live_fetch_ok"] = bool(fetch and not fetch[0].get("error") and extracted_content)
+            if not checks["live_fetch_ok"]:
+                error = fetch[0].get("error") if fetch else None
+                checks["live_fetch_error"] = str(error or "TinyFish Fetch returned no extracted content.")
+        except Exception as exc:  # noqa: BLE001
+            checks["live_fetch_ok"] = False
+            checks["live_fetch_error"] = f"{type(exc).__name__}: {exc}"
+
+        checks["ok"] = bool(configured_ok and checks["live_search_ok"] and checks["live_fetch_ok"])
     return checks
 
 
@@ -351,6 +334,15 @@ def _print_status(status: dict[str, Any]) -> None:
             print("  credit_policy:")
             for feature in CREDIT_FEATURES:
                 print(f"    {feature}: {value.get(feature, 'deny')}")
+            continue
+        if key == "retired_credit_policy_keys" and isinstance(value, list):
+            ordered = [feature for feature in RETIRED_CREDIT_POLICY_KEYS if feature in value]
+            print(f"  retired_credit_policy_keys: {', '.join(ordered) if ordered else 'none'}")
+            if ordered:
+                print(
+                    "  WARNING: retired TinyFish Agent/Profile policy keys are ignored. "
+                    "Run `hermes tinyfish credits reset` to remove them."
+                )
             continue
         if isinstance(value, bool):
             value = "yes" if value else "no"
@@ -368,17 +360,32 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     status = collect_status(live=bool(getattr(args, "live", False)))
-    paid_ok = True
     if getattr(args, "live_paid", False):
         paid_ok = _run_live_paid_checks(status)
+        status["ok"] = bool(status["ok"] and paid_ok)
     if getattr(args, "json", False):
         print(json.dumps(status, indent=2, sort_keys=True))
     else:
         _print_status(status)
         if not status["ok"]:
             print()
-            print("Recommended next step: run `hermes tinyfish setup`.")
-    return 0 if status["ok"] and paid_ok else 1
+            configured = bool(
+                status.get("web_backend_configured")
+                and (status.get("mcp_configured") or status.get("api_key_fallback_configured"))
+            )
+            if not configured:
+                print("Recommended next step: run `hermes tinyfish setup`.")
+            elif not status.get("live_search_ok", True) or not status.get("live_fetch_ok", True):
+                print(
+                    "Recommended next step: retry the live checks and verify TinyFish MCP OAuth "
+                    "or API credentials and service availability."
+                )
+            else:
+                print(
+                    "Recommended next step: review the Browser credit policy and API key, "
+                    "then retry `hermes tinyfish doctor --live-paid`."
+                )
+    return 0 if status["ok"] else 1
 
 
 def _print_json_or_text(payload: dict[str, Any], *, as_json: bool) -> None:
@@ -393,7 +400,7 @@ def _api_key_or_error() -> str | None:
     api_key = _get_env("TINYFISH_API_KEY")
     if not api_key:
         print(
-            "TINYFISH_API_KEY is required for TinyFish REST Agent/Browser/Profile operations.",
+            "TINYFISH_API_KEY is required for TinyFish Fetch usage and Browser operations.",
             file=sys.stderr,
         )
         return None
@@ -401,33 +408,51 @@ def _api_key_or_error() -> str | None:
 
 
 def _run_live_paid_checks(status: dict[str, Any]) -> bool:
-    browser_policy = credit_policy_summary().get("browser", "deny")
-    agent_policy = credit_policy_summary().get("agent", "deny")
-    if browser_policy == "deny" and agent_policy == "deny":
+    policy_status = status.get("credit_policy") or {}
+    browser_policy = policy_status.get("browser", "deny") if isinstance(policy_status, dict) else "deny"
+    if browser_policy == "deny":
         status["live_paid_ok"] = False
-        status["live_paid_error"] = "TinyFish Agent and Browser policies are deny."
+        status["live_paid_browser_ok"] = False
+        status["live_paid_error"] = "TinyFish Browser policy is deny."
         return False
+
+    approved, message = request_credit_approval("browser", "doctor-live-paid", "TinyFish Browser session")
+    if not approved:
+        status["live_paid_ok"] = False
+        status["live_paid_browser_ok"] = False
+        status["live_paid_error"] = message
+        return False
+
     api_key = _get_env("TINYFISH_API_KEY")
     if not api_key:
         status["live_paid_ok"] = False
+        status["live_paid_browser_ok"] = False
         status["live_paid_error"] = "TINYFISH_API_KEY is required for paid live checks."
         return False
-    if browser_policy in {"request", "allow"}:
-        approved, message = request_credit_approval("browser", "doctor-live-paid", "TinyFish Browser session")
-        if not approved:
-            status["live_paid_ok"] = False
-            status["live_paid_error"] = message
-            return False
+
+    session_id = ""
+    try:
+        session = rest_client.create_browser_session(api_key=api_key)
+        session_id = str(session.get("session_id") or session.get("id") or "").strip()
+        if not session_id:
+            status["live_paid_error"] = "TinyFish Browser did not return a valid session ID."
+    except Exception as exc:  # noqa: BLE001
+        status["live_paid_error"] = f"TinyFish Browser session creation failed ({type(exc).__name__})."
+
+    cleanup_ok = False
+    if session_id:
         try:
-            session = rest_client.create_browser_session(api_key=api_key)
-            session_id = str(session.get("session_id") or session.get("id") or "")
-            if session_id:
-                rest_client.close_browser_session(session_id, api_key=api_key)
-            status["live_paid_browser_ok"] = bool(session_id)
-        except Exception as exc:  # noqa: BLE001
-            status["live_paid_browser_ok"] = False
-            status["live_paid_error"] = str(exc)
-            return False
+            cleanup_ok = bool(rest_client.close_browser_session(session_id, api_key=api_key))
+        except Exception:  # noqa: BLE001
+            cleanup_ok = False
+        if not cleanup_ok:
+            status["live_paid_error"] = "TinyFish Browser session cleanup failed."
+
+    status["live_paid_browser_cleanup_ok"] = cleanup_ok
+    status["live_paid_browser_ok"] = bool(session_id and cleanup_ok)
+    if not status["live_paid_browser_ok"]:
+        status["live_paid_ok"] = False
+        return False
     status["live_paid_ok"] = True
     return True
 
@@ -436,7 +461,10 @@ def cmd_credits(args: argparse.Namespace) -> int:
     subcommand = getattr(args, "credits_command", None) or "status"
     config = _load_config()
     if subcommand == "status":
-        payload: dict[str, Any] = {"credit_policy": credit_policy_summary(config)}
+        payload: dict[str, Any] = {
+            "credit_policy": credit_policy_summary(config),
+            "retired_credit_policy_keys": retired_credit_policy_keys(config),
+        }
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
@@ -445,6 +473,11 @@ def cmd_credits(args: argparse.Namespace) -> int:
             print(f"  pricing: {PRICING_NOTICE}")
             for feature in CREDIT_FEATURES:
                 print(f"  {feature}: {payload['credit_policy'][feature]}")
+            if payload["retired_credit_policy_keys"]:
+                print(
+                    "  WARNING: retired TinyFish Agent/Profile policy keys are ignored. "
+                    "Run `hermes tinyfish credits reset` to remove them."
+                )
         return 0
     if subcommand == "set":
         feature = normalize_feature(args.feature)
@@ -456,7 +489,7 @@ def cmd_credits(args: argparse.Namespace) -> int:
     if subcommand == "reset":
         reset_credit_policies(config)
         _save_config(config)
-        print("Reset all TinyFish credit policies to deny.")
+        print("Reset TinyFish Browser credit policy to deny and removed retired policy keys.")
         return 0
     print("Usage: hermes tinyfish credits {status,set,reset}", file=sys.stderr)
     return 2
@@ -467,95 +500,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
     if not api_key:
         return 1
     try:
-        payload = {"success": True, "data": rest_client.usage(api_key=api_key)}
+        payload = {
+            "success": True,
+            "surface": "fetch",
+            "data": rest_client.fetch_usage(api_key=api_key),
+        }
     except Exception as exc:  # noqa: BLE001
-        payload = {"success": False, "error": str(exc)}
+        payload = {"success": False, "surface": "fetch", "error": str(exc)}
     _print_json_or_text(payload, as_json=bool(getattr(args, "json", False)))
     return 0 if payload["success"] else 1
-
-
-def cmd_agent(args: argparse.Namespace) -> int:
-    command = getattr(args, "agent_command", None)
-    api_key = _api_key_or_error()
-    if not api_key:
-        return 1
-    try:
-        if command in {"run", "run-async"}:
-            approved, message = request_credit_approval("agent", command, getattr(args, "url", ""))
-            if not approved:
-                print(message, file=sys.stderr)
-                return 1
-            url = str(args.url)
-            goal = str(args.goal)
-            use_profile = bool(getattr(args, "use_profile", False)) or None
-            profile_id = getattr(args, "profile_id", None)
-            if command == "run":
-                data = rest_client.agent_run(
-                    api_key=api_key,
-                    url=url,
-                    goal=goal,
-                    use_profile=use_profile,
-                    profile_id=profile_id,
-                )
-            else:
-                data = rest_client.agent_run_async(
-                    api_key=api_key,
-                    url=url,
-                    goal=goal,
-                    use_profile=use_profile,
-                    profile_id=profile_id,
-                )
-        elif command == "status":
-            data = rest_client.agent_status(str(args.run_id), api_key=api_key)
-        elif command == "cancel":
-            data = rest_client.agent_cancel(str(args.run_id), api_key=api_key)
-        else:
-            print("Usage: hermes tinyfish agent {run,run-async,status,cancel}", file=sys.stderr)
-            return 2
-    except Exception as exc:  # noqa: BLE001
-        print(f"TinyFish Agent failed: {exc}", file=sys.stderr)
-        return 1
-    _print_json_or_text({"success": True, "data": data}, as_json=bool(getattr(args, "json", False)))
-    return 0
-
-
-def cmd_profiles(args: argparse.Namespace) -> int:
-    command = getattr(args, "profiles_command", None)
-    api_key = _api_key_or_error()
-    if not api_key:
-        return 1
-    try:
-        if command == "list":
-            data = rest_client.profiles_list(api_key=api_key)
-        elif command == "create":
-            data = rest_client.profile_create(api_key=api_key, name=str(args.name))
-        elif command == "setup-session":
-            profile_id = str(args.profile_id)
-            approved, message = request_credit_approval("profile_setup", command, profile_id)
-            if not approved:
-                print(message, file=sys.stderr)
-                return 1
-            data = rest_client.profile_setup_session(profile_id, api_key=api_key)
-        elif command == "save-setup":
-            data = rest_client.profile_save_setup(
-                str(args.profile_id),
-                str(args.session_id),
-                api_key=api_key,
-            )
-        elif command == "cancel-setup":
-            data = rest_client.profile_cancel_setup(
-                str(args.profile_id),
-                str(args.session_id),
-                api_key=api_key,
-            )
-        else:
-            print(
-                "Usage: hermes tinyfish profiles {list,create,setup-session,save-setup,cancel-setup}",
-                file=sys.stderr,
-            )
-            return 2
-    except Exception as exc:  # noqa: BLE001
-        print(f"TinyFish Profiles failed: {exc}", file=sys.stderr)
-        return 1
-    _print_json_or_text({"success": True, "data": data}, as_json=bool(getattr(args, "json", False)))
-    return 0

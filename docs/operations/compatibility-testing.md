@@ -1,47 +1,75 @@
 # Compatibility Testing
 
-Use this runbook when verifying the TinyFish plugin against a Hermes install or
-source checkout, Hermes upgrades, gateway behavior, plugin install/update
-behavior, MCP OAuth behavior, or provider selection.
+Use this runbook to verify the TinyFish plugin against Hermes installs and
+upgrades, including provider selection, MCP/REST routing, migration behavior,
+Browser policy, and gateway loading.
 
 ## Boundaries
 
-- Plugin source: this repository, or `HERMES_PLUGIN_TINYFISH_ROOT` when set.
-- Hermes install: prefer the `hermes` command on `PATH` for user-path checks.
-- Hermes source checkout: optional; use `HERMES_SOURCE_ROOT` when a local
-  checkout is required for reference or upgrade testing.
-- Do not modify Hermes core files for TinyFish compatibility.
-- Do not print secrets such as `TINYFISH_API_KEY` or OAuth tokens.
+- Plugin source is this repository, or `HERMES_PLUGIN_TINYFISH_ROOT` when set.
+- Prefer the `hermes` command on `PATH` for user-path checks.
+- Use `HERMES_SOURCE_ROOT` only when a Hermes source checkout is needed for
+  reference; do not modify Hermes core.
+- Use disposable `HERMES_HOME` directories for destructive setup/migration
+  tests.
+- Never print `TINYFISH_API_KEY`, OAuth tokens, CDP URLs, signed URLs, or other
+  connection credentials.
 
-## Install or Update Through Hermes
+## Automated Compatibility Baseline
 
-Using the installed Hermes command:
+CI builds the plugin wheel, installs it with `hermes-agent==0.18.2` on Python
+3.12, and uses an isolated `HERMES_HOME` to verify:
 
-```bash
-hermes plugins list
-hermes plugins update web-tinyfish
-```
+- entry-point plugin discovery and enablement;
+- setup with `--yes --skip-login` and no secrets;
+- non-secret `status --json` output; and
+- non-live `doctor --json` success.
 
-For a fresh user-path install outside this checkout, the primary install path
-is:
+This is an offline configuration/load check. It does not replace the live
+release gates below.
+
+## Fresh Install and Update Paths
+
+Fresh Git install:
 
 ```bash
 hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes tinyfish setup
 ```
 
-Hermes currently has runtime plugin discovery rather than a full marketplace or
-search index, so use the repository identifier directly.
-
-## Setup and Status
-
-Verify setup and status:
+Update an existing installation:
 
 ```bash
-hermes tinyfish status
-hermes tinyfish doctor
+hermes plugins list --plain --no-bundled
+hermes plugins update web-tinyfish
+hermes tinyfish status --json
 ```
 
-The expected Hermes config selects TinyFish for both web search and extraction:
+For the `0.2.1` upgrade fixture, seed the old policy keys before updating:
+
+```yaml
+tinyfish:
+  credit_policy:
+    agent: request
+    browser: allow
+    profile_setup: deny
+    model_tools: request
+```
+
+After update, status must report the three retired keys without modifying the
+file. Then run:
+
+```bash
+hermes tinyfish credits reset
+hermes tinyfish status --json
+```
+
+The resulting policy must contain only `browser: deny`. Do not delete or
+modify remote TinyFish runs, profiles, credentials, or saved state.
+
+## Provider and Transport Checks
+
+Expected provider selection:
 
 ```yaml
 web:
@@ -49,55 +77,75 @@ web:
   extract_backend: tinyfish
 ```
 
-The expected MCP server endpoint is:
+Expected plugin-managed MCP configuration:
 
-```text
-https://agent.tinyfish.ai/mcp
+```yaml
+mcp_servers:
+  tinyfish:
+    url: https://agent.tinyfish.ai/mcp
+    auth: oauth
+    tools:
+      include: [search, fetch_content]
+      resources: false
+      prompts: false
 ```
 
-OAuth MCP is preferred. REST fallback uses `TINYFISH_API_KEY` only when MCP
-OAuth is unavailable or not configured.
+Verify both modes separately:
 
-## Live Check
+1. MCP-only: complete OAuth setup, remove REST fallback from the disposable
+   environment, and run `hermes tinyfish doctor --live`.
+2. REST-only: omit TinyFish MCP configuration, supply an API key through the
+   disposable environment, and run `hermes tinyfish doctor --live`.
 
-Run the live doctor only when credentials are available:
+Search and Fetch run independently. The command must exit nonzero if either
+fails. Record which transport was used without recording credentials.
 
-```bash
-hermes tinyfish doctor --live
-```
+Confirm Hermes resolves both `web_search` and `web_extract` to `tinyfish` and
+does not fall back to Firecrawl, Tavily, or another provider.
 
-`doctor --live` should prove that Hermes can search and fetch with TinyFish. In
-the report, say whether the check used MCP OAuth or REST fallback, but do not
-print tokens or API keys.
+## Browser Check
 
-`doctor --live` intentionally tests only Search and Fetch. TinyFish docs
-currently describe those capabilities as free, but this is based on current
-documentation and may change.
-
-Credit-risking Agent, Browser, and Browser Context Profile setup checks require
-explicit policy changes:
+Browser testing is separate because it may consume credits:
 
 ```bash
 hermes tinyfish credits set browser request
 hermes tinyfish doctor --live-paid
 ```
 
-`doctor --live-paid` must refuse when the relevant policy is `deny`, trigger
-Hermes approval when the policy is `request`, and avoid printing signed URLs or
-secrets.
+Obtain explicit approval at test time. The check must create and close exactly
+one Browser session. It must refuse under `deny`, request approval under
+`request`, accept `allow`, and fail if creation or cleanup fails. Output and
+logs must not expose session IDs or connection URLs.
+
+TinyFish Agent and Browser Context Profile behavior are not tested: those
+surfaces are intentionally absent from the plugin.
 
 ## Gateway Behavior
 
-If provider registration, plugin loading, or long-running Hermes gateway
-behavior may be affected, verify gateway restart/load behavior after updating
-the plugin.
+After changing plugin loading or provider registration, restart the gateway:
 
-Report whether Hermes is using TinyFish rather than Firecrawl, Tavily, or any
-other provider.
+```bash
+hermes gateway restart
+```
 
-If `browser.cloud_provider: tinyfish` is configured, verify that browser tool
-calls are blocked, approval-gated, or allowed according to
-`tinyfish.credit_policy.browser`.
+Verify a healthy replacement process and inspect sanitized logs for import,
+registration, stale-tool, or provider-selection errors. Confirm the plugin
+registers Search/Fetch and Browser providers but no TinyFish Agent tools.
+
+## Compatibility Report
+
+Record a sanitized report containing:
+
+- date and operator;
+- OS, Python version, Hermes version/SHA, plugin version/SHA, and install path;
+- each command and exit code;
+- fresh-install or update path;
+- MCP or REST transport for Search and Fetch;
+- resolved Search and Extract providers;
+- retired-key detection/reset result;
+- Browser policy and paid-check result, if explicitly approved;
+- gateway restart and sanitized-log result; and
+- skipped checks with reasons.
 
 ## References
 

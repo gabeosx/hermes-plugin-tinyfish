@@ -44,7 +44,7 @@ def test_register_adds_provider_and_cli_command() -> None:
     assert callable(ctx.cli_commands[0]["handler_fn"])
 
 
-def test_register_adds_model_tools_when_enabled(monkeypatch) -> None:
+def test_register_never_adds_retired_model_tools(monkeypatch) -> None:
     monkeypatch.setattr(
         "hermes_plugin_tinyfish.config.load_config",
         lambda: {"tinyfish": {"credit_policy": {"model_tools": "request", "agent": "request"}}},
@@ -53,9 +53,4 @@ def test_register_adds_model_tools_when_enabled(monkeypatch) -> None:
 
     hermes_plugin_tinyfish.register(ctx)
 
-    assert {tool["name"] for tool in ctx.tools} == {
-        "tinyfish_agent_run",
-        "tinyfish_agent_run_async",
-        "tinyfish_agent_status",
-        "tinyfish_agent_cancel",
-    }
+    assert ctx.tools == []

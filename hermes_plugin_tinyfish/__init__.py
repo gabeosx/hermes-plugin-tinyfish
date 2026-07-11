@@ -2,20 +2,49 @@
 
 from __future__ import annotations
 
+from importlib import metadata
+from pathlib import Path
 from typing import Any
 
-__version__ = "0.1.0"
+_DISTRIBUTION_NAME = "hermes-plugin-tinyfish"
+_PLUGIN_MANIFEST = Path(__file__).resolve().parents[1] / "plugin.yaml"
+
+
+def _version_from_plugin_manifest(path: Path | None = None) -> str | None:
+    path = _PLUGIN_MANIFEST if path is None else path
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return None
+
+    for line in lines:
+        if not line.startswith("version:"):
+            continue
+        value = line.partition(":")[2].split("#", 1)[0].strip().strip("'\"")
+        return value or None
+    return None
+
+
+def _resolve_version() -> str:
+    try:
+        installed_version = metadata.version(_DISTRIBUTION_NAME)
+    except Exception:  # Importing a directory plugin must not depend on package metadata.
+        installed_version = ""
+    if installed_version:
+        return installed_version
+    return _version_from_plugin_manifest() or "0+unknown"
+
+
+__version__ = _resolve_version()
 
 
 def register(ctx: Any) -> None:
-    """Register TinyFish providers, policy hooks, optional tools, and CLI commands."""
+    """Register TinyFish providers, Browser policy hook, and CLI commands."""
 
     from .browser_provider import TinyFishBrowserProvider
-    from .config import credit_policy
     from .credit_policy import pre_tool_call_policy
     from .provider import TinyFishWebSearchProvider
     from .setup_cli import dispatch_tinyfish_cli, setup_tinyfish_cli
-    from .tools import TOOLS, TOOLSET, _tool_available
 
     provider = TinyFishWebSearchProvider(dispatch_tool=getattr(ctx, "dispatch_tool", None))
     ctx.register_web_search_provider(provider)
@@ -23,16 +52,6 @@ def register(ctx: Any) -> None:
         ctx.register_browser_provider(TinyFishBrowserProvider())
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", pre_tool_call_policy)
-    if hasattr(ctx, "register_tool") and credit_policy("model_tools") in {"request", "allow"}:
-        for name, schema, handler in TOOLS:
-            ctx.register_tool(
-                name=name,
-                toolset=TOOLSET,
-                schema=schema,
-                handler=handler,
-                check_fn=_tool_available,
-                description=str(schema.get("description") or ""),
-            )
     ctx.register_cli_command(
         name="tinyfish",
         help="Configure and diagnose the TinyFish web provider",
@@ -54,4 +73,4 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(name)
 
 
-__all__ = ["TinyFishBrowserProvider", "TinyFishWebSearchProvider", "register"]
+__all__ = ["TinyFishBrowserProvider", "TinyFishWebSearchProvider", "__version__", "register"]

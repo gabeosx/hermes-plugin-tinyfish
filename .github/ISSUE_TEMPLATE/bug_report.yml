@@ -1,28 +1,132 @@
 name: Bug Report
-description: Report a problem with the TinyFish Hermes plugin
+description: Report a reproducible problem with the Hermes TinyFish plugin
 title: "[Bug]: "
 labels: ["bug"]
 body:
-  - type: textarea
-    id: problem
+  - type: markdown
     attributes:
-      label: Problem
-      description: What happened?
+      value: |
+        Thanks for helping improve this independent community plugin. Remove
+        API keys, OAuth tokens, session IDs, CDP URLs, and signed URLs from all
+        output. Report security vulnerabilities through the security-policy
+        link instead of a public issue.
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest repeatable sequence, including commands and sanitized inputs.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
     validations:
       required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include sanitized errors or logs when useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: Who is affected, how often, and what work is blocked or degraded?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk_level
+    attributes:
+      label: Data or security risk
+      description: Select the highest plausible risk. Use the private security channel for vulnerabilities.
+      options:
+        - No known data or security risk
+        - Unknown; needs assessment
+        - Potential data exposure, loss, or security impact
+        - Confirmed vulnerability (stop and use SECURITY.md)
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk_details
+    attributes:
+      label: Data or security risk details
+      description: Explain the selection, including why there is no known risk. Do not include sensitive data.
+    validations:
+      required: true
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version or commit
+      placeholder: "0.2.1 or Git SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: hermes_version
+    attributes:
+      label: Hermes version
+      placeholder: "Output of hermes --version"
+    validations:
+      required: true
+
+  - type: input
+    id: python_platform
+    attributes:
+      label: Python and platform
+      placeholder: "Python 3.12.10; Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - Hermes Git plugin install
+        - PyPI / pip
+        - Editable source checkout
+        - Other (explain in reproduction)
+    validations:
+      required: true
+
   - type: textarea
     id: status
     attributes:
-      label: Status Output
-      description: Paste `hermes tinyfish status` output. Do not include secrets.
+      label: Sanitized status output
+      description: Paste `hermes tinyfish status` output after removing secrets, or explain why it cannot run.
       render: text
-  - type: input
-    id: hermes
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
     attributes:
-      label: Hermes Version
-      placeholder: hermes --version
-  - type: input
-    id: install
+      label: Acceptance criteria
+      description: What observable behavior would prove this bug is fixed?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
     attributes:
-      label: Install Method
-      placeholder: "hermes plugins install / pip / other"
+      label: Submission checks
+      options:
+        - label: I removed credentials, tokens, session identifiers, and signed connection URLs.
+          required: true
+        - label: I confirmed this belongs to Search, Fetch, optional Browser infrastructure, setup, migration, or compatibility—not excluded TinyFish Agent/Profile functionality.
+          required: true

@@ -9,7 +9,7 @@ import httpx
 SEARCH_URL = "https://api.search.tinyfish.ai"
 FETCH_URL = "https://api.fetch.tinyfish.ai"
 BROWSER_URL = "https://api.browser.tinyfish.ai"
-AGENT_BASE_URL = "https://agent.tinyfish.ai/v1"
+FETCH_USAGE_URL = f"{FETCH_URL}/usage"
 
 
 class TinyFishRestError(RuntimeError):
@@ -154,143 +154,22 @@ def close_browser_session(session_id: str, *, api_key: str, timeout: float = 15.
         return False
 
 
-def agent_run(
-    *,
-    api_key: str,
-    url: str,
-    goal: str,
-    use_profile: bool | None = None,
-    profile_id: str | None = None,
-    webhook_url: str | None = None,
-    timeout: float = 300.0,
-) -> dict[str, Any]:
-    body = _agent_body(
-        url=url, goal=goal, use_profile=use_profile, profile_id=profile_id, webhook_url=webhook_url
-    )
-    return _post_agent("/automation/run", body, api_key=api_key, timeout=timeout)
+def fetch_usage(*, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Return TinyFish Fetch operation history."""
 
-
-def agent_run_async(
-    *,
-    api_key: str,
-    url: str,
-    goal: str,
-    use_profile: bool | None = None,
-    profile_id: str | None = None,
-    webhook_url: str | None = None,
-    timeout: float = 60.0,
-) -> dict[str, Any]:
-    body = _agent_body(
-        url=url, goal=goal, use_profile=use_profile, profile_id=profile_id, webhook_url=webhook_url
-    )
-    return _post_agent("/automation/run-async", body, api_key=api_key, timeout=timeout)
-
-
-def _agent_body(
-    *,
-    url: str,
-    goal: str,
-    use_profile: bool | None = None,
-    profile_id: str | None = None,
-    webhook_url: str | None = None,
-) -> dict[str, Any]:
-    body: dict[str, Any] = {"url": url, "goal": goal}
-    if use_profile is not None:
-        body["use_profile"] = use_profile
-    if profile_id:
-        body["profile_id"] = profile_id
-    if webhook_url:
-        body["webhook_url"] = webhook_url
-    return body
-
-
-def agent_status(run_id: str, *, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
-    return _get_agent(f"/runs/{run_id}", api_key=api_key, timeout=timeout)
-
-
-def agent_cancel(run_id: str, *, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
-    return _post_agent(f"/runs/{run_id}/cancel", {}, api_key=api_key, timeout=timeout)
-
-
-def profiles_list(*, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
-    return _get_agent("/profiles", api_key=api_key, timeout=timeout)
-
-
-def profile_create(
-    *,
-    api_key: str,
-    name: str,
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    return _post_agent("/profiles", {"name": name}, api_key=api_key, timeout=timeout)
-
-
-def profile_setup_session(
-    profile_id: str,
-    *,
-    api_key: str,
-    timeout: float = 90.0,
-) -> dict[str, Any]:
-    return _post_agent(f"/profiles/{profile_id}/setup-session", {}, api_key=api_key, timeout=timeout)
-
-
-def profile_save_setup(
-    profile_id: str,
-    session_id: str,
-    *,
-    api_key: str,
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    return _post_agent(
-        f"/profiles/{profile_id}/save", {"session_id": session_id}, api_key=api_key, timeout=timeout
-    )
-
-
-def profile_cancel_setup(
-    profile_id: str,
-    session_id: str,
-    *,
-    api_key: str,
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    return _post_agent(
-        f"/profiles/{profile_id}/setup-session/cancel",
-        {"session_id": session_id},
-        api_key=api_key,
-        timeout=timeout,
-    )
+    try:
+        response = httpx.get(FETCH_USAGE_URL, headers=_headers(api_key), timeout=timeout)
+        response.raise_for_status()
+        return cast(dict[str, Any], response.json())
+    except httpx.HTTPStatusError as exc:
+        _raise_http_error("TinyFish Fetch usage", exc)
+    except httpx.RequestError as exc:
+        raise TinyFishRestError(f"Could not reach TinyFish Fetch usage: {exc}") from exc
+    except ValueError as exc:
+        raise TinyFishRestError("TinyFish Fetch usage returned invalid JSON") from exc
 
 
 def usage(*, api_key: str, timeout: float = 30.0) -> dict[str, Any]:
-    return _get_agent("/usage", api_key=api_key, timeout=timeout)
+    """Compatibility wrapper for the Fetch usage endpoint."""
 
-
-def _get_agent(path: str, *, api_key: str, timeout: float) -> dict[str, Any]:
-    try:
-        response = httpx.get(f"{AGENT_BASE_URL}{path}", headers=_headers(api_key), timeout=timeout)
-        response.raise_for_status()
-        return cast(dict[str, Any], response.json())
-    except httpx.HTTPStatusError as exc:
-        _raise_http_error("TinyFish Agent", exc)
-    except httpx.RequestError as exc:
-        raise TinyFishRestError(f"Could not reach TinyFish Agent: {exc}") from exc
-    except ValueError as exc:
-        raise TinyFishRestError("TinyFish Agent returned invalid JSON") from exc
-
-
-def _post_agent(path: str, body: dict[str, Any], *, api_key: str, timeout: float) -> dict[str, Any]:
-    try:
-        response = httpx.post(
-            f"{AGENT_BASE_URL}{path}",
-            json=body,
-            headers=_json_headers(api_key),
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        return cast(dict[str, Any], response.json())
-    except httpx.HTTPStatusError as exc:
-        _raise_http_error("TinyFish Agent", exc)
-    except httpx.RequestError as exc:
-        raise TinyFishRestError(f"Could not reach TinyFish Agent: {exc}") from exc
-    except ValueError as exc:
-        raise TinyFishRestError("TinyFish Agent returned invalid JSON") from exc
+    return fetch_usage(api_key=api_key, timeout=timeout)

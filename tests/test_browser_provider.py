@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from hermes_plugin_tinyfish import rest_client
 from hermes_plugin_tinyfish.browser_provider import TinyFishBrowserProvider
 
@@ -50,3 +52,20 @@ def test_browser_provider_close_session(monkeypatch) -> None:
 
     assert TinyFishBrowserProvider().close_session("sess_123") is True
     assert seen == {"session_id": "sess_123", "api_key": "tf_test"}
+
+
+def test_browser_provider_cleanup_logs_do_not_expose_session_id(monkeypatch, caplog) -> None:
+    monkeypatch.delenv("TINYFISH_API_KEY", raising=False)
+    provider = TinyFishBrowserProvider()
+
+    with caplog.at_level(logging.DEBUG):
+        assert provider.close_session("sess_secret") is False
+
+        def fail_close(session_id: str) -> bool:
+            raise RuntimeError(f"failed to close {session_id}")
+
+        monkeypatch.setattr(provider, "close_session", fail_close)
+        provider.emergency_cleanup("sess_secret")
+
+    assert "sess_secret" not in caplog.text
+    assert "failed to close" not in caplog.text

@@ -32,7 +32,8 @@ Optional local workspace:
   - Avoid `except*`, exception groups, and other Python 3.11+ syntax.
   - Avoid Python 3.11+ typing syntax unless it is compatible with Python 3.10
     under `from __future__ import annotations` and current tooling.
-- Run or rely on the CI matrix for Python 3.10, 3.11, and 3.12 before merging.
+- Run or rely on the CI matrix for Python 3.10, 3.11, 3.12, and 3.13 before
+  merging.
 
 ## Skill routing
 
@@ -84,6 +85,19 @@ hermes tinyfish status
 
 Check gateway restart/load behavior when plugin loading or provider registration
 changes.
+
+## Core-only product scope
+
+- Keep TinyFish Search and Fetch as Hermes `web_search` and `web_extract`
+  providers with MCP-first routing.
+- Keep TinyFish Browser optional, default-deny, and controlled through Hermes's
+  own browser/agent loop.
+- Do not add TinyFish Agent tools, Agent/Profile CLI commands, Browser Context
+  Profile management, Vault, batch/SSE, or other delegated automation to this
+  plugin. Hermes already owns planning and browser interaction.
+- Users needing excluded TinyFish-native features may configure the full
+  TinyFish MCP service independently; that surface is outside this plugin's
+  setup, policy, diagnostics, and compatibility guarantees.
 
 ## Release policy
 
