@@ -4,27 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-CreditFeature = Literal["agent", "browser", "profile_setup", "model_tools"]
+CreditFeature = Literal["browser"]
 CreditPolicy = Literal["deny", "request", "allow"]
 
-CREDIT_FEATURES: tuple[CreditFeature, ...] = (
-    "agent",
-    "browser",
-    "profile_setup",
-    "model_tools",
-)
+CREDIT_FEATURES: tuple[CreditFeature, ...] = ("browser",)
+RETIRED_CREDIT_FEATURES: tuple[str, ...] = ("agent", "profile_setup", "model_tools")
+# Compatibility alias for callers that describe these values as config keys.
+RETIRED_CREDIT_POLICY_KEYS = RETIRED_CREDIT_FEATURES
 CREDIT_POLICIES: tuple[CreditPolicy, ...] = ("deny", "request", "allow")
 
-FEATURE_ALIASES: dict[str, CreditFeature] = {
-    "agent": "agent",
-    "browser": "browser",
-    "profile": "profile_setup",
-    "profiles": "profile_setup",
-    "profile-setup": "profile_setup",
-    "profile_setup": "profile_setup",
-    "model-tools": "model_tools",
-    "model_tools": "model_tools",
-}
+FEATURE_ALIASES: dict[str, CreditFeature] = {"browser": "browser"}
 
 
 SearchOptions = dict[str, Any]
@@ -99,11 +88,22 @@ def reset_credit_policies(config: dict[str, Any]) -> None:
     if not isinstance(section, dict):
         section = {}
         config["tinyfish"] = section
-    section["credit_policy"] = {feature: "deny" for feature in CREDIT_FEATURES}
+    # Replacing the mapping both restores the safe default and removes retired
+    # Agent/Profile/model-tool policy keys left by pre-0.3 installations.
+    section["credit_policy"] = {"browser": "deny"}
 
 
 def credit_policy_summary(config: dict[str, Any] | None = None) -> dict[str, CreditPolicy]:
     return {feature: credit_policy(feature, config) for feature in CREDIT_FEATURES}
+
+
+def retired_credit_policy_keys(config: dict[str, Any] | None = None) -> list[str]:
+    """Return retired pre-0.3 policy keys without mutating user configuration."""
+
+    policies = tinyfish_config(config).get("credit_policy") or {}
+    if not isinstance(policies, dict):
+        return []
+    return [feature for feature in RETIRED_CREDIT_FEATURES if feature in policies]
 
 
 def _int_option(value: Any) -> int | None:

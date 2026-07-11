@@ -1,17 +1,94 @@
 name: Feature Request
-description: Suggest an improvement
+description: Propose an evidence-backed Search, Fetch, Browser, setup, or compatibility improvement
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
-  - type: textarea
-    id: request
+  - type: markdown
     attributes:
-      label: Request
-      description: What would you like this plugin to do?
+      value: |
+        This plugin intentionally excludes TinyFish Agent, Browser Context
+        Profiles, Vault, and delegated automation because Hermes owns the agent
+        loop. Proposals should strengthen Search, Fetch, optional Browser
+        infrastructure, setup, migration, or compatibility.
+
+  - type: input
+    id: persona
+    attributes:
+      label: Target persona
+      description: Who has this need?
+      placeholder: "Hermes gateway operator running scheduled research"
     validations:
       required: true
+
   - type: textarea
-    id: context
+    id: job
     attributes:
-      label: Context
-      description: Why is this useful?
+      label: Job to be done
+      description: Describe the situation, desired progress, and current obstacle.
+      placeholder: "When ..., I need ..., so that ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Link or summarize observed workflows, failures, frequency, or user feedback supporting the need.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_impact
+    attributes:
+      label: Expected impact
+      description: What measurable or observable improvement should result?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest user-facing capability that would address the job.
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What related behavior should explicitly remain out of scope?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: roadmap_fit
+    attributes:
+      label: Roadmap fit
+      description: Select the core-only area this proposal improves.
+      options:
+        - Search
+        - Fetch
+        - Optional Browser infrastructure
+        - Setup or migration safety
+        - Hermes compatibility or diagnostics
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that would make the request complete.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Scope checks
+      options:
+        - label: This proposal does not add TinyFish Agent, Profile, Vault, batch/SSE, or other delegated-automation surfaces.
+          required: true
+        - label: I have described evidence and expected impact, not only a possible API capability.
+          required: true

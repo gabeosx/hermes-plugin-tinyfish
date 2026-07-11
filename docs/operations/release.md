@@ -2,150 +2,127 @@
 
 Use this runbook when preparing a public Hermes TinyFish plugin release.
 
-## Channels
+GitHub Releases are the primary Hermes-native channel. PyPI is secondary for
+environments that load `hermes_agent.plugins` entry points. Do not create a
+tag, GitHub Release, or PyPI publication without explicit authorization.
 
-GitHub Releases are the primary public release channel for Hermes users.
+## Release Automation
 
-PyPI exists as a secondary package channel for environments that load
-`hermes_agent.plugins` entry points, but Hermes Git plugin install is the more
-ergonomic user path:
+Normal releases follow the pull-request label on the merged change:
 
-```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
-```
+- `release:none` merges work without preparing a release.
+- `release:patch`, `release:minor`, or `release:major` select the bump.
+- A non-empty `CHANGELOG.md` `Unreleased` section defaults to patch when no
+  release label is present.
 
-Do not create a package release for docs-only instruction changes unless the
-PyPI README or package metadata needs updating.
+After a release-triggering merge, **Auto Release** opens a release-prep PR. The
+prep workflow updates `pyproject.toml`, `plugin.yaml`, and `CHANGELOG.md`, then
+enables auto-merge when repository settings allow it. Merging that PR creates
+the matching tag and GitHub Release; PyPI publication runs only when
+`PYPI_PUBLISH_ENABLED == true`.
 
-## Preflight
+Use **Prepare Release Manually** only when a release-prep PR is needed outside
+the normal feature-PR flow. The tag-based **Release** workflow remains available
+for authorized recovery and validates metadata before publishing.
 
-Check the working tree before editing:
+## Core-Only `0.3.0` Gates
+
+The core-only implementation must merge with `release:none`. Set the package
+classifier to Beta for the feature-complete core-only scope, but do not bump
+package or manifest versions in that PR.
+
+Against merged `main`, complete and record the compatibility runbook using
+disposable Hermes homes:
+
+1. Fresh Git install and update from released `0.2.1`.
+2. Retired-policy reporting without implicit config mutation, followed by an
+   explicit reset that leaves only `browser: deny`.
+3. No registered TinyFish Agent tools and no accepted `agent`/`profiles` CLI
+   commands.
+4. MCP-only and REST-only live Search/Fetch checks, with TinyFish selected for
+   both Hermes web providers and no provider fallback.
+5. One explicitly approved Browser create/close check.
+6. Gateway restart with a healthy replacement process and sanitized logs free
+   of import, registration, and stale-tool errors.
+
+Only after every gate passes should a release-readiness PR:
+
+- confirm the Beta classifier still matches the release scope;
+- ensure Python 3.13 metadata is present;
+- include the sanitized compatibility report; and
+- merge with `release:minor` to prepare `0.3.0`.
+
+After automation creates the release, verify GitHub/PyPI metadata and smoke-test
+fresh installs from both distribution paths.
+
+## General Preflight
+
+Check the working tree and version metadata:
 
 ```bash
 git status --short
 ```
 
-Confirm the current version in:
+`pyproject.toml` and `plugin.yaml` must match. A public release must also have a
+dated `CHANGELOG.md` section for that exact version. Preserve historical notes,
+including the removed `0.2.x` Agent/Profile behavior.
 
-- `pyproject.toml`
-- `plugin.yaml`
-- `CHANGELOG.md`
-
-Then choose the intended semantic version bump.
-
-## Prepare the Release PR
-
-Normal releases are automated after PR merge:
-
-1. Put user-facing release notes under `CHANGELOG.md` `Unreleased`.
-2. Add one optional PR label before merging:
-   - `release:patch`
-   - `release:minor`
-   - `release:major`
-   - `release:none`
-3. Merge the feature PR.
-
-After merge, the **Auto Release** workflow opens a release-prep PR when
-`Unreleased` has content and enables GitHub auto-merge for that PR. It defaults
-to `release:patch` if no release label is present. Repository auto-merge must
-be enabled for this to complete without human intervention.
-
-After the generated release-prep PR auto-merges, **Auto Release** validates
-release metadata, builds artifacts, creates and pushes the matching `vX.Y.Z`
-tag, creates the GitHub Release, and publishes to PyPI when
-`PYPI_PUBLISH_ENABLED == true`.
-
-Use the **Prepare Release Manually** workflow only when a release PR needs to be
-created outside the normal feature-PR flow. Choose a `patch`, `minor`, or
-`major` bump, or pass an explicit version such as `0.2.0`.
-
-The prepare-release workflow:
-
-- computes the next version when only a bump is supplied;
-- updates `pyproject.toml`;
-- updates `plugin.yaml`;
-- moves the current `CHANGELOG.md` `Unreleased` notes into a dated version
-  section;
-- validates the generated files; and
-- opens a release PR and enables auto-merge. Merging that release PR triggers
-  automatic tag creation.
-
-For local/manual release preparation, make the same edits:
-
-1. Update `pyproject.toml`.
-2. Update `plugin.yaml`.
-3. Move the relevant `CHANGELOG.md` bullets from `Unreleased` into a dated
-   version section such as `## [0.1.5] - 2026-07-08`.
-4. Keep user-facing docs aligned if install, setup, provider behavior, or
-   compatibility guidance changed.
-5. For releases that touch Agent, Browser, Profiles, pricing, or Search/Fetch
-   claims, confirm the README and release notes say this is an independent
-   unaffiliated community plugin and that free-use assumptions are based on
-   current TinyFish documentation.
-6. Confirm credit-risking features still default to `deny`.
+Documentation is part of feature completion. Update README, reference docs,
+operations docs, and migration guidance whenever setup, commands, providers,
+policy, compatibility, or release behavior changes.
 
 Run the full local suite:
 
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
+python3 -m compileall hermes_plugin_tinyfish scripts tests
 python3 -m mypy hermes_plugin_tinyfish
-python3 -m pytest
+python3 -m pytest --cov=hermes_plugin_tinyfish --cov-report=term-missing --cov-fail-under=70
 rm -rf dist && python3 -m build
 ```
 
-Use a PR for protected `main`. Do not create tags or GitHub Releases by hand in
-the normal flow.
+Use a PR for protected `main`; do not create release tags by hand in the normal
+flow.
 
-## Tag and Publish
+## Manual Recovery
 
-Manual tagging is only needed if automation is disabled or a release must be
-recovered by hand. In that case, build the artifacts, create the GitHub Release,
-and create an annotated tag matching the package version:
+Manual tagging is only for explicitly authorized recovery when automation is
+disabled:
 
 ```bash
-git tag -a v0.1.5 -m "Release v0.1.5"
-git push origin v0.1.5
+git tag -a v0.3.0 -m "Release v0.3.0"
+git push origin v0.3.0
 ```
 
-The tag-based release workflow remains available for manually pushed tags. It
-validates that the tag matches `pyproject.toml`, that
-`plugin.yaml` has the same version, and that `CHANGELOG.md` contains a dated
-section for that exact version. It uses only that version section as the GitHub
-Release body, builds wheel and sdist artifacts, creates a GitHub Release, and
-publishes to PyPI only when the repository variable enables PyPI publishing.
+The tag-based workflow validates the tag against `pyproject.toml`, verifies the
+same version in `plugin.yaml`, extracts only the matching dated changelog
+section, builds wheel/sdist artifacts, creates or refreshes the GitHub Release,
+and publishes to PyPI only when enabled.
 
-If the GitHub Release succeeds but PyPI publishing is cancelled before the
-package upload, rerun the **Release** workflow manually with the existing tag.
-The manual dispatch checks out that tag, refreshes the GitHub Release assets,
-refuses to publish if that version is already present on PyPI, and then runs
-the PyPI Trusted Publishing step. Do not delete and recreate release tags for
-this recovery case.
+If GitHub Release creation succeeds but PyPI upload is cancelled, rerun the
+**Release** workflow manually with the existing tag. The workflow refuses a
+duplicate PyPI version. Do not delete and recreate the release tag.
 
-Release notes for capability releases should include:
-
-- Search/Fetch are the safe default entry point.
-- Agent, Browser, and Profile setup are credit-policy gated.
-- The default policy is `deny`.
-- Users can set `deny`, `request`, or `allow` with `hermes tinyfish credits`.
-
-## Verify
+## Post-Release Verification
 
 Confirm GitHub Release assets include:
 
 - `hermes_plugin_tinyfish-<version>-py3-none-any.whl`
 - `hermes_plugin_tinyfish-<version>.tar.gz`
 
-After the publish workflow completes, verify PyPI:
+Then verify PyPI and perform the Git and PyPI user-install smoke tests:
 
 ```bash
 python3 -m pip index versions hermes-plugin-tinyfish --no-cache-dir
 ```
 
-Then smoke-test a fresh virtualenv install.
+Record artifact hashes, install results, reported runtime version, provider
+selection, and any skipped live checks without recording secrets.
 
 ## References
 
-- [Hermes plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)
+- [Compatibility testing](compatibility-testing.md)
+- [User install smoke test](user-install-smoke-test.md)
 - [Project releases](https://github.com/gabeosx/hermes-plugin-tinyfish/releases)
 - [PyPI package](https://pypi.org/project/hermes-plugin-tinyfish/)

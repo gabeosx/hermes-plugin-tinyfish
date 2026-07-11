@@ -6,17 +6,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-policy-green.svg)](SECURITY.md)
 
-TinyFish web search, content extraction, and optional credit-gated web
-automation for [Hermes Agent](https://hermes-agent.nousresearch.com/docs/).
+TinyFish Search and Fetch providers, plus optional TinyFish Browser
+infrastructure, for
+[Hermes Agent](https://hermes-agent.nousresearch.com/docs/).
+
+Hermes remains the agent: it plans, chooses tools, and controls browser
+interaction. This plugin supplies web data and, when explicitly enabled, a
+remote browser session underneath Hermes's own browser loop.
 
 This is an independent community plugin. It is not affiliated with, endorsed
 by, or maintained by TinyFish or Hermes / Nous Research.
 
-TinyFish documentation currently describes Search and Fetch as free, and Agent
-and Browser as credit-consuming. This plugin treats Search and Fetch as the
-safe default entry point, but pricing and free-use assumptions are based only
-on current TinyFish docs and may change. Credit-risking features default to
-`deny`.
+TinyFish documentation currently describes Search and Fetch as free and
+Browser as credit-consuming. This plugin treats Search and Fetch as the safe
+default entry point. Pricing and free-use assumptions are based only on current
+TinyFish documentation and may change; Browser defaults to `deny`.
 
 ## Install
 
@@ -55,92 +59,24 @@ web:
 
 tinyfish:
   credit_policy:
-    agent: deny
     browser: deny
-    profile_setup: deny
-    model_tools: deny
 ```
 
 The plugin prefers TinyFish's hosted OAuth MCP server and falls back to REST
 with `TINYFISH_API_KEY` when MCP OAuth is unavailable. It may save
-`TINYFISH_API_KEY` to `~/.hermes/.env` if you choose to add API-key fallback.
+`TINYFISH_API_KEY` to `~/.hermes/.env` if you choose API-key fallback.
 
-Verify the default Search/Fetch setup:
+Verify Search and Fetch:
 
 ```bash
 hermes tinyfish doctor
 hermes tinyfish doctor --live
 ```
 
-`doctor --live` performs only Search and Fetch checks.
+`doctor --live` runs independent Search and Fetch checks and exits nonzero if
+either fails.
 
-## Credit Policy
-
-Credit-risking TinyFish capabilities are controlled independently:
-
-```bash
-hermes tinyfish credits status
-hermes tinyfish credits set agent request
-hermes tinyfish credits set browser allow
-hermes tinyfish credits set profile-setup deny
-hermes tinyfish credits set model-tools request
-hermes tinyfish credits reset
-```
-
-Policies:
-
-- `deny`: fail closed. This is the default.
-- `request`: use Hermes' existing approval flow for each invocation.
-- `allow`: run without per-invocation approval.
-
-`model-tools` controls whether model-callable TinyFish Agent tools are exposed.
-Even when `model-tools` is enabled, `agent` must also be set to `request` or
-`allow`.
-
-## Optional Capabilities
-
-### Browser Provider
-
-TinyFish Browser can be selected as a Hermes cloud browser provider after
-explicit opt-in:
-
-```yaml
-browser:
-  cloud_provider: tinyfish
-tinyfish:
-  credit_policy:
-    browser: request
-```
-
-When selected, TinyFish-backed `browser_*` calls are gated by the browser
-credit policy.
-
-### Agent API
-
-Run TinyFish goal-based automation from the CLI:
-
-```bash
-hermes tinyfish credits set agent request
-hermes tinyfish agent run --url https://example.com --goal "Find the pricing"
-hermes tinyfish agent run-async --url https://example.com --goal "Extract product names"
-hermes tinyfish agent status <run_id>
-hermes tinyfish agent cancel <run_id>
-```
-
-### Browser Context Profiles
-
-Manage persistent TinyFish Browser Context Profiles:
-
-```bash
-hermes tinyfish profiles list
-hermes tinyfish profiles create --name "Example account"
-hermes tinyfish credits set profile-setup request
-hermes tinyfish profiles setup-session <profile_id>
-hermes tinyfish profiles save-setup <profile_id> --session-id <session_id>
-hermes tinyfish profiles cancel-setup <profile_id> --session-id <session_id>
-```
-
-### Search and Fetch Options
+## Search and Fetch Options
 
 Optional REST fallback defaults can be configured in `config.yaml`:
 
@@ -159,10 +95,54 @@ tinyfish:
     ttl: 3600
 ```
 
-MCP remains the preferred path when configured. These options apply to REST
-fallback calls.
+MCP remains the preferred path when configured. These options apply only to
+REST fallback calls.
 
-## Diagnostics
+## Optional Browser Provider
+
+TinyFish Browser can supply remote browser infrastructure for Hermes after
+explicit opt-in:
+
+```yaml
+browser:
+  cloud_provider: tinyfish
+tinyfish:
+  credit_policy:
+    browser: request
+```
+
+Browser policy values are:
+
+- `deny`: fail closed; this is the default.
+- `request`: use Hermes's approval flow for each `browser_*` tool invocation.
+- `allow`: run Browser tools without per-invocation approval.
+
+Manage the policy with:
+
+```bash
+hermes tinyfish credits status
+hermes tinyfish credits set browser request
+hermes tinyfish credits reset
+```
+
+`credits reset` restores `browser: deny` and removes retired Agent/Profile
+policy keys left by plugin `0.2.x`.
+
+## Why TinyFish Agent Is Not Included
+
+TinyFish Agent performs delegated goal-based web automation. Hermes already
+owns planning and browser interaction, so exposing a second agent loop through
+this provider is duplicative and makes control, approval, and billing less
+clear. The plugin therefore does not register TinyFish Agent tools or manage
+Browser Context Profiles.
+
+Users who specifically need TinyFish's delegated Agent, Profile, Vault, batch,
+or streaming capabilities can configure TinyFish's full MCP service
+independently in Hermes. Those tools are outside this plugin's setup, policy,
+diagnostics, and compatibility guarantees. The plugin-managed `tinyfish` MCP
+entry intentionally remains restricted to `search` and `fetch_content`.
+
+## Diagnostics and Migration
 
 ```bash
 hermes tinyfish status
@@ -171,8 +151,16 @@ hermes tinyfish doctor --live
 hermes tinyfish doctor --live-paid
 ```
 
-`doctor --live-paid` respects credit policy. It refuses under `deny`, prompts
-under `request`, and runs under `allow`.
+- `status` is non-secret and reports ignored `0.2.x` policy keys under
+  `retired_credit_policy_keys`.
+- `usage` reads TinyFish Fetch operation history; it is not Agent or Browser
+  billing data.
+- `doctor --live-paid` only creates and closes a TinyFish Browser session. It
+  refuses under `deny`, requests approval under `request`, and never prints
+  connection URLs or credentials.
+- The former `agent` and `profiles` commands and model-callable Agent tools are
+  intentionally removed. Existing remote TinyFish runs, profiles, credentials,
+  and saved state are not changed.
 
 ## Upgrade Safety
 
@@ -180,11 +168,10 @@ This plugin uses public Hermes extension points:
 
 - `ctx.register_web_search_provider(...)`
 - `ctx.register_browser_provider(...)`
-- `ctx.register_tool(...)` for optional Agent tools
-- `ctx.register_hook("pre_tool_call", ...)` for credit policy gates
+- `ctx.register_hook("pre_tool_call", ...)` for Browser credit policy
 - `ctx.register_cli_command(...)`
-- Hermes MCP config under `mcp_servers`
-- Hermes `.env` config helpers for optional API-key fallback
+- Hermes MCP configuration under `mcp_servers`
+- Hermes environment helpers for optional API-key fallback
 
 It does not patch Hermes Agent, update scripts, Dockerfiles, or files inside a
 Hermes installation or source checkout.
@@ -199,7 +186,7 @@ python -m pip install -e ".[dev]"
 ruff format .
 ruff check .
 mypy hermes_plugin_tinyfish
-pytest
+pytest --cov=hermes_plugin_tinyfish --cov-fail-under=70
 python -m build
 ```
 
@@ -216,6 +203,7 @@ TINYFISH_LIVE_TESTS=1 TINYFISH_API_KEY=... pytest tests/test_live.py
 - [User install smoke test](docs/operations/user-install-smoke-test.md)
 - [Hermes extension points](docs/reference/hermes-extension-points.md)
 - [TinyFish integration notes](docs/reference/tinyfish-integration.md)
+- [Roadmap and non-goals](docs/roadmap.md)
 
 ## References
 
@@ -223,9 +211,7 @@ TINYFISH_LIVE_TESTS=1 TINYFISH_API_KEY=... pytest tests/test_live.py
 - [TinyFish Authentication](https://docs.tinyfish.ai/authentication)
 - [TinyFish Search API](https://docs.tinyfish.ai/search-api)
 - [TinyFish Fetch API](https://docs.tinyfish.ai/fetch-api)
-- [TinyFish Agent API](https://docs.tinyfish.ai/agent-api)
 - [TinyFish Browser API](https://docs.tinyfish.ai/browser-api)
-- [TinyFish Browser Context Profiles](https://docs.tinyfish.ai/agent-api/browser-context-profiles)
 - [Hermes Web Search Provider Plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/web-search-provider-plugin)
 - [Hermes Browser Provider Plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/browser-provider-plugin)
 - [Hermes Plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)

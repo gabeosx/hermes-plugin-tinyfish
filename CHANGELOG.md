@@ -7,6 +7,31 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- Added migration diagnostics for ignored `0.2.x` Agent, Profile setup, and
+  model-tool credit-policy keys.
+- Added authoritative Search/Fetch live diagnostics, a Browser-only paid live
+  check, expanded compatibility CI, and structured issue forms.
+
+### Changed
+
+- Refocused the plugin on TinyFish Search and Fetch plus optional TinyFish
+  Browser infrastructure controlled by Hermes.
+- Simplified credit policy to Browser only, corrected usage reporting to use
+  TinyFish Fetch operation history, and aligned runtime version reporting with
+  installed package metadata.
+- Promoted the package development classifier from Alpha to Beta for the
+  feature-complete core-only scope.
+- Extended supported and tested Python versions through Python 3.13.
+
+### Removed
+
+- Removed TinyFish Agent CLI commands, model-callable Agent tools, Browser
+  Context Profile commands, and their Agent/Profile REST and policy surfaces.
+  Existing remote TinyFish runs, profiles, credentials, and saved state are not
+  modified.
+
 ## [0.2.1] - 2026-07-08
 
 ### Changed

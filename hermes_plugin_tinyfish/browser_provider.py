@@ -59,7 +59,7 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
         if not session_id or not cdp_url:
             raise RuntimeError("TinyFish Browser did not return session_id and cdp_url.")
         session_name = f"tinyfish_{task_id}_{uuid.uuid4().hex[:8]}"
-        logger.info("Created TinyFish browser session %s", session_name)
+        logger.info("Created TinyFish browser session")
         return {
             "session_name": session_name,
             "bb_session_id": session_id,
@@ -74,7 +74,7 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
     def close_session(self, session_id: str) -> bool:
         api_key = _provider_env("TINYFISH_API_KEY")
         if not api_key:
-            logger.warning("Cannot close TinyFish browser session %s: missing API key", session_id)
+            logger.warning("Cannot close TinyFish browser session: missing API key")
             return False
         return rest_client.close_browser_session(session_id, api_key=api_key)
 
@@ -82,7 +82,7 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
         try:
             self.close_session(session_id)
         except Exception as exc:
-            logger.debug("TinyFish browser emergency cleanup failed for %s: %s", session_id, exc)
+            logger.debug("TinyFish browser emergency cleanup failed (%s)", type(exc).__name__)
 
     def get_setup_schema(self) -> dict[str, Any]:
         return {

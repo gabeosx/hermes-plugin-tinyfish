@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v7
@@ -43,10 +43,55 @@ jobs:
         run: mypy hermes_plugin_tinyfish
 
       - name: Test
-        run: pytest --cov=hermes_plugin_tinyfish --cov-report=term-missing
+        run: pytest --cov=hermes_plugin_tinyfish --cov-report=term-missing --cov-fail-under=70
 
       - name: Build package
         run: python -m build
+
+      - name: Installed wheel version check
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import pathlib
+          import re
+
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+
+          root = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          with (root / "pyproject.toml").open("rb") as fh:
+              project_version = tomllib.load(fh)["project"]["version"]
+          manifest = (root / "plugin.yaml").read_text()
+          match = re.search(r"(?m)^version:\s*([^\s#]+)", manifest)
+          assert match, "plugin.yaml version is missing"
+          assert match.group(1) == project_version, (match.group(1), project_version)
+
+          PY
+          expected_plugin_version="$(python -c 'import importlib.metadata as m; print(m.version("hermes-plugin-tinyfish"))')"
+          wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          smoke_dir="${RUNNER_TEMP}/wheel-smoke-${{ matrix.python-version }}"
+          python -m venv "$smoke_dir"
+          "$smoke_dir/bin/python" -m pip install --no-deps "$wheel"
+          cd "$RUNNER_TEMP"
+          EXPECTED_PLUGIN_VERSION="$expected_plugin_version" "$smoke_dir/bin/python" - <<'PY'
+          import importlib.metadata
+          import os
+
+          import hermes_plugin_tinyfish
+
+          expected = os.environ["EXPECTED_PLUGIN_VERSION"]
+          installed = importlib.metadata.version("hermes-plugin-tinyfish")
+          assert installed == expected, (installed, expected)
+          assert hermes_plugin_tinyfish.__version__ == expected, (
+              hermes_plugin_tinyfish.__version__,
+              expected,
+          )
+          PY
 
       - name: Entry point smoke test
         run: |
@@ -57,4 +102,68 @@ jobs:
           assert "web-tinyfish" in names, names
           module = next(ep for ep in eps if ep.name == "web-tinyfish").load()
           assert hasattr(module, "register")
+          PY
+
+  hermes-compatibility:
+    name: Hermes 0.18.2 compatibility
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build plugin wheel
+        run: |
+          python -m pip install -U pip
+          python -m pip install build
+          python -m build
+
+      - name: Install Hermes and built plugin
+        run: |
+          wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          python -m pip install "hermes-agent==0.18.2" "$wheel"
+
+      - name: Discover and enable plugin
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
+        run: |
+          mkdir -p "$HERMES_HOME"
+          cd "$RUNNER_TEMP"
+          hermes --version
+          hermes plugins enable web-tinyfish
+          hermes plugins list --plain --no-bundled | tee plugin-list.txt
+          python - <<'PY'
+          import pathlib
+          import re
+
+          listing = pathlib.Path("plugin-list.txt").read_text()
+          assert re.search(r"(?m)^enabled\s+entrypoint\s+\S+\s+web-tinyfish$", listing), listing
+          PY
+
+      - name: Run non-secret setup and diagnostics
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
+        run: |
+          cd "$RUNNER_TEMP"
+          hermes tinyfish setup --yes --skip-login
+          hermes tinyfish status --json > tinyfish-status.json
+          hermes tinyfish doctor --json > tinyfish-doctor.json
+          python - <<'PY'
+          import json
+          import pathlib
+
+          status = json.loads(pathlib.Path("tinyfish-status.json").read_text())
+          doctor = json.loads(pathlib.Path("tinyfish-doctor.json").read_text())
+
+          assert status["web_search_backend"] == "tinyfish", status
+          assert status["web_extract_backend"] == "tinyfish", status
+          assert status["credit_policy"] == {"browser": "deny"}, status
+          assert status["retired_credit_policy_keys"] == [], status
+          assert doctor["ok"] is True, doctor
           PY

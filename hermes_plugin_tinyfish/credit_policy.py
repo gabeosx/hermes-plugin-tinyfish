@@ -8,10 +8,7 @@ from urllib.parse import urlparse
 from .config import CreditFeature, CreditPolicy, browser_cloud_provider, credit_policy, normalize_feature
 
 FEATURE_LABELS: dict[CreditFeature, str] = {
-    "agent": "TinyFish Agent API",
     "browser": "TinyFish Browser API",
-    "profile_setup": "TinyFish Browser Context Profile setup",
-    "model_tools": "TinyFish model-callable Agent tools",
 }
 
 INDEPENDENT_NOTICE = "This is an independent community plugin and is not affiliated with TinyFish or Hermes."
@@ -107,16 +104,6 @@ def pre_tool_call_policy(
     """Hermes plugin hook for policy-gating TinyFish credit-risking tools."""
 
     params = args or {}
-
-    if tool_name in {"tinyfish_agent_run", "tinyfish_agent_run_async"}:
-        target = str(params.get("url") or "")
-        model_directive = _directive_for_feature("model_tools", tool_name, target)
-        if model_directive is not None:
-            return model_directive
-        return _directive_for_feature("agent", tool_name, target)
-
-    if tool_name in {"tinyfish_agent_status", "tinyfish_agent_cancel"}:
-        return _directive_for_feature("model_tools", tool_name, str(params.get("run_id") or ""))
 
     if tool_name.startswith("browser_") and browser_cloud_provider() == "tinyfish":
         target = str(params.get("url") or params.get("target") or "")

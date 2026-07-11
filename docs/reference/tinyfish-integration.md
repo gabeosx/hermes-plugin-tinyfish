@@ -4,10 +4,13 @@ This independent community plugin integrates TinyFish with Hermes Agent. It is
 not affiliated with, endorsed by, or maintained by TinyFish or Hermes / Nous
 Research.
 
+Hermes owns reasoning, planning, tool choice, and browser interaction. TinyFish
+provides web data and optional remote browser infrastructure.
+
 Pricing and free-use assumptions are based on current TinyFish documentation
-only. TinyFish docs currently describe Search and Fetch as free, while Agent
-and Browser use credits. The plugin therefore defaults to Search/Fetch and
-denies credit-risking features unless the user changes policy.
+only. TinyFish currently describes Search and Fetch as free and Browser as
+credit-consuming. Search and Fetch are enabled by setup; Browser remains
+policy-denied until the user opts in.
 
 ## Capability Map
 
@@ -16,18 +19,18 @@ denies credit-risking features unless the user changes policy.
 | Search | `web_search` provider | Enabled by setup |
 | Fetch | `web_extract` provider | Enabled by setup |
 | Browser | Hermes `BrowserProvider` named `tinyfish` | Denied |
-| Agent | CLI commands and optional model tools | Denied |
-| Browser Context Profiles | CLI commands | Denied for setup sessions |
+| Agent and Agent run lifecycle | Not provided | Excluded |
+| Browser Context Profiles and Vault | Not provided | Excluded |
 
-## Routing
+## Search and Fetch Routing
 
-Search and Fetch remain MCP-first:
+Search and Fetch are MCP-first:
 
 - Hosted MCP endpoint: `https://agent.tinyfish.ai/mcp`
-- MCP tools: `search`, `fetch_content`
+- Plugin-managed MCP tools: `search`, `fetch_content`
 - REST fallback: `TINYFISH_API_KEY`
 
-REST fallback supports optional TinyFish Search/Fetch config under:
+REST fallback supports optional TinyFish Search/Fetch configuration:
 
 ```yaml
 tinyfish:
@@ -40,46 +43,12 @@ tinyfish:
     ttl: 3600
 ```
 
-## Credit Policy
+`hermes tinyfish usage` reads Fetch operation history from TinyFish's Fetch
+usage endpoint. It does not report Agent or Browser billing.
 
-Credit-risking features are controlled by:
+## Browser Infrastructure
 
-```yaml
-tinyfish:
-  credit_policy:
-    agent: deny
-    browser: deny
-    profile_setup: deny
-    model_tools: deny
-```
-
-Policies:
-
-- `deny`: fail closed.
-- `request`: use Hermes' existing approval gate for each invocation.
-- `allow`: run without per-invocation approval.
-
-CLI:
-
-```bash
-hermes tinyfish credits status
-hermes tinyfish credits set agent request
-hermes tinyfish credits set browser allow
-hermes tinyfish credits reset
-```
-
-## Agent, Browser, and Profiles
-
-Agent commands:
-
-```bash
-hermes tinyfish agent run --url https://example.com --goal "Extract pricing"
-hermes tinyfish agent run-async --url https://example.com --goal "Extract products"
-hermes tinyfish agent status <run_id>
-hermes tinyfish agent cancel <run_id>
-```
-
-Browser provider selection:
+TinyFish Browser can be selected as Hermes's remote browser provider:
 
 ```yaml
 browser:
@@ -89,25 +58,47 @@ tinyfish:
     browser: request
 ```
 
-Profile commands:
+Browser policies are `deny`, `request`, and `allow`. The default is `deny`.
+`request` uses Hermes's existing approval flow for each `browser_*` tool
+invocation, while `allow` permits Browser tools without per-invocation
+approval. The first permitted Browser call creates the remote session when one
+does not already exist for the task.
 
-```bash
-hermes tinyfish profiles list
-hermes tinyfish profiles create --name "Example"
-hermes tinyfish profiles setup-session <profile_id>
-hermes tinyfish profiles save-setup <profile_id> --session-id <session_id>
-```
+Provider behavior:
 
-## Provider Semantics
+- `is_available()` is non-networked and requires an API key plus a non-deny
+  Browser policy.
+- Hermes owns page-level planning and browser tool calls.
+- TinyFish session IDs and connection URLs are not printed by diagnostics.
+- `doctor --live-paid` creates and closes one Browser session and treats failed
+  cleanup as a failed diagnostic.
 
-- `is_available()` stays non-networked.
-- Search and Fetch normalize TinyFish payloads into Hermes web provider shapes.
-- Browser provider availability requires `TINYFISH_API_KEY` and browser policy
-  set to `request` or `allow`.
-- Optional model-callable Agent tools are registered only when `model_tools` is
-  `request` or `allow`.
-- Live network verification belongs in `hermes tinyfish doctor --live` or
-  `--live-paid`, not provider availability checks.
+## Deliberate Exclusions
+
+TinyFish Agent is a delegated goal-based automation loop. Exposing it through
+this plugin would duplicate Hermes's own planning and browser loop and make
+tool ownership, approval, and billing less clear. Browser Context Profiles,
+Vault, Agent batch operations, Agent SSE, and other delegated-automation
+features are excluded with it.
+
+The plugin does not register Agent tools, provide Agent/Profile CLI commands,
+or manage remote Agent/Profile state. Users who need those TinyFish-native
+capabilities can configure TinyFish's full MCP service independently in Hermes;
+that configuration is outside this plugin's setup, policy, diagnostics, and
+compatibility guarantees.
+
+The plugin-managed `tinyfish` MCP entry always limits its tool list to
+`search` and `fetch_content`.
+
+## Upgrade Behavior
+
+Plugin `0.2.x` configurations may contain `agent`, `profile_setup`, or
+`model_tools` under `tinyfish.credit_policy`. These keys are ignored and
+reported by `hermes tinyfish status` as `retired_credit_policy_keys`.
+
+Reading status, loading the plugin, and updating it do not mutate user config
+or remote TinyFish state. `hermes tinyfish credits reset` is the explicit
+migration command: it removes retired keys and restores `browser: deny`.
 
 ## References
 
@@ -115,6 +106,5 @@ hermes tinyfish profiles save-setup <profile_id> --session-id <session_id>
 - [TinyFish authentication](https://docs.tinyfish.ai/authentication)
 - [TinyFish Search API](https://docs.tinyfish.ai/search-api)
 - [TinyFish Fetch API](https://docs.tinyfish.ai/fetch-api)
-- [TinyFish Agent API](https://docs.tinyfish.ai/agent-api)
 - [TinyFish Browser API](https://docs.tinyfish.ai/browser-api)
-- [TinyFish Browser Context Profiles](https://docs.tinyfish.ai/agent-api/browser-context-profiles)
+- [Hermes MCP](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)
