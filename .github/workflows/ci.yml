@@ -108,8 +108,6 @@ jobs:
     name: Hermes 0.18.2 compatibility
     needs: test
     runs-on: ubuntu-latest
-    env:
-      HERMES_HOME: ${{ runner.temp }}/hermes-home
 
     steps:
       - uses: actions/checkout@v7
@@ -132,6 +130,8 @@ jobs:
           python -m pip install "hermes-agent==0.18.2" "$wheel"
 
       - name: Discover and enable plugin
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
         run: |
           mkdir -p "$HERMES_HOME"
           cd "$RUNNER_TEMP"
@@ -147,6 +147,8 @@ jobs:
           PY
 
       - name: Run non-secret setup and diagnostics
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
         run: |
           cd "$RUNNER_TEMP"
           hermes tinyfish setup --yes --skip-login
