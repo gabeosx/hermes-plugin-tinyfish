@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.2.2] - 2026-07-13
+
 ### Added
 
 - Added migration diagnostics for ignored `0.2.x` Agent, Profile setup, and
