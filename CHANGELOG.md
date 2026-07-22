@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.2.4] - 2026-07-22
+
 ### Fixed
 
 - Made the merge-to-release path fully automatic by explicitly running checks
