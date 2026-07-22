@@ -7,6 +7,13 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Fixed
+
+- Made the merge-to-release path fully automatic by explicitly running checks
+  for bot-created release PRs, merging them after validation, and dispatching
+  the PyPI-trusted Release workflow for tagging, GitHub Release creation, and
+  package publication.
+
 ## [0.2.3] - 2026-07-22
 
 ### Added

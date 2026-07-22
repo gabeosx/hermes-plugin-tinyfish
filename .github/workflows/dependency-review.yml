@@ -2,6 +2,16 @@ name: Dependency Review
 
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Base commit for an explicitly dispatched release-PR check
+        required: true
+        type: string
+      head_ref:
+        description: Head commit for an explicitly dispatched release-PR check
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,3 +25,5 @@ jobs:
       - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
+          base-ref: ${{ github.event_name == 'workflow_dispatch' && inputs.base_ref || '' }}
+          head-ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || '' }}
