@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ inputs.tag || github.ref_name }}
 
 on:
   push:
@@ -7,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to publish, for example v0.2.0"
+        description: "Release tag to create and publish, for example v0.2.4"
         required: true
         type: string
 
@@ -18,14 +19,14 @@ jobs:
   github-release:
     runs-on: ubuntu-latest
     outputs:
-      release_preexisting: ${{ steps.release.outputs.preexisting }}
+      pypi_exists: ${{ steps.pypi.outputs.exists }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || env.RELEASE_TAG }}
 
       - uses: actions/setup-python@v6
         with:
@@ -42,6 +43,25 @@ jobs:
 
       - name: Build distributions
         run: python -m build
+
+      - name: Create release tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          git fetch origin --tags
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+            head_commit="$(git rev-parse HEAD)"
+            if [ "$tag_commit" != "$head_commit" ]; then
+              echo "${RELEASE_TAG} already points to ${tag_commit}, not ${head_commit}" >&2
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
+            git push origin "${RELEASE_TAG}"
+          fi
 
       - name: Create or refresh GitHub Release
         id: release
@@ -64,8 +84,33 @@ jobs:
               --notes-file release-notes.md
           fi
 
+      - name: Check PyPI version
+        id: pypi
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import urllib.error
+          import urllib.request
+
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+          url = f"https://pypi.org/pypi/hermes-plugin-tinyfish/{version}/json"
+          exists = False
+          try:
+              with urllib.request.urlopen(url, timeout=15) as response:
+                  exists = response.status == 200
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404:
+                  raise
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"exists={str(exists).lower()}\n")
+          print(f"PyPI version {version} exists: {exists}")
+          PY
+
   publish-pypi:
-    if: vars.PYPI_PUBLISH_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || needs.github-release.outputs.release_preexisting != 'true')
+    if: needs.github-release.outputs.pypi_exists != 'true'
     needs: github-release
     runs-on: ubuntu-latest
     environment: pypi
@@ -82,33 +127,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-
-      - name: Refuse duplicate PyPI version
-        run: |
-          python - <<'PY'
-          from __future__ import annotations
-
-          import os
-          import sys
-          import urllib.error
-          import urllib.request
-
-          version = os.environ["RELEASE_TAG"].removeprefix("v")
-          url = f"https://pypi.org/pypi/hermes-plugin-tinyfish/{version}/json"
-
-          try:
-              with urllib.request.urlopen(url, timeout=15) as response:
-                  if response.status == 200:
-                      sys.exit(
-                          f"hermes-plugin-tinyfish {version} is already on PyPI; "
-                          "refusing duplicate publish."
-                      )
-          except urllib.error.HTTPError as exc:
-              if exc.code == 404:
-                  print(f"hermes-plugin-tinyfish {version} is not on PyPI yet; publishing.")
-              else:
-                  raise
-          PY
 
       - name: Build
         run: |

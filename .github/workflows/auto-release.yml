@@ -4,7 +4,12 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -14,12 +19,10 @@ jobs:
     outputs:
       action: ${{ steps.decide.outputs.action }}
       bump: ${{ steps.decide.outputs.bump }}
-      version: ${{ steps.decide.outputs.version }}
-      tag: ${{ steps.decide.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          ref: main
 
       - uses: actions/setup-python@v6
         with:
@@ -37,7 +40,6 @@ jobs:
           import re
           import subprocess
           import sys
-          import tomllib
 
           root = pathlib.Path(".")
           sha = os.environ["GITHUB_SHA"]
@@ -60,10 +62,6 @@ jobs:
                   return []
               return json.loads(result.stdout or "[]")
 
-          with (root / "pyproject.toml").open("rb") as fh:
-              version = tomllib.load(fh)["project"]["version"]
-          tag = f"v{version}"
-
           pulls = gh_json(
               [
                   f"/repos/{repo}/commits/{sha}/pulls",
@@ -73,15 +71,13 @@ jobs:
           )
           pr = pulls[0] if isinstance(pulls, list) and pulls else {}
           labels = {label.get("name", "") for label in pr.get("labels", []) if isinstance(label, dict)}
-          head_ref = ((pr.get("head") or {}).get("ref") or "") if isinstance(pr, dict) else ""
-          title = pr.get("title", "") if isinstance(pr, dict) else ""
 
           changelog = (root / "CHANGELOG.md").read_text()
           unreleased_match = re.search(r"(?ms)^## Unreleased\n(?P<body>.*?)(?=^## \[|\Z)", changelog)
           unreleased_body = unreleased_match.group("body").strip() if unreleased_match else ""
 
           if "release:none" in labels:
-              output(action="none", bump="", version=version, tag=tag)
+              output(action="none", bump="")
               print("release:none label present; skipping release automation.")
               sys.exit(0)
 
@@ -91,37 +87,12 @@ jobs:
                   if f"release:{candidate}" in labels:
                       bump = candidate
                       break
-              output(action="prepare", bump=bump, version=version, tag=tag)
+              output(action="prepare", bump=bump)
               print(f"Unreleased changelog content found; preparing release PR with {bump} bump.")
               sys.exit(0)
 
-          is_release_pr = head_ref.startswith("release/") or title.startswith("Release v")
-          if not is_release_pr:
-              output(action="none", bump="", version=version, tag=tag)
-              print("No unreleased content and this push is not from a release PR; skipping tag.")
-              sys.exit(0)
-
-          tag_exists = subprocess.run(
-              ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
-              check=False,
-              stdout=subprocess.DEVNULL,
-              stderr=subprocess.DEVNULL,
-          ).returncode == 0
-          if not tag_exists:
-              tag_exists = subprocess.run(
-                  ["git", "ls-remote", "--exit-code", "--tags", "origin", tag],
-                  check=False,
-                  stdout=subprocess.DEVNULL,
-                  stderr=subprocess.DEVNULL,
-              ).returncode == 0
-
-          if tag_exists:
-              output(action="none", bump="", version=version, tag=tag)
-              print(f"{tag} already exists; skipping tag.")
-              sys.exit(0)
-
-          output(action="tag", bump="", version=version, tag=tag)
-          print(f"Release PR merged and {tag} does not exist; creating tag.")
+          output(action="none", bump="")
+          print("No unreleased content; skipping release automation.")
           PY
 
   prepare-release-pr:
@@ -130,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: actions/setup-python@v6
         with:
@@ -160,74 +133,105 @@ jobs:
             This PR was opened after a feature PR with non-empty `Unreleased`
             changelog notes merged to `main`.
 
-            Auto Release will enable auto-merge for this PR. After it merges,
-            Auto Release will create and push the `${{ steps.prep.outputs.tag }}`
-            tag, create the GitHub Release, and run the gated PyPI publish job
-            when enabled.
+            Auto Release will explicitly run the protected-branch checks, merge
+            this PR after they pass, and dispatch the trusted Release workflow.
+            That workflow creates the `${{ steps.prep.outputs.tag }}` tag and
+            GitHub Release, then publishes the package to PyPI.
 
-      - name: Enable auto-merge for release PR
-        if: steps.cpr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --squash --auto
-
-  tag-release:
-    needs: decide
-    if: needs.decide.outputs.action == 'tag'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Build and validate release
-        run: |
-          python -m pip install -U pip
-          python -m pip install build hatchling
-          python scripts/validate_release.py --tag "${{ needs.decide.outputs.tag }}" --notes-path release-notes.md
-          python -m build
-
-      - name: Create and push release tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ needs.decide.outputs.tag }}" -m "Release ${{ needs.decide.outputs.tag }}"
-          git push origin "${{ needs.decide.outputs.tag }}"
-
-      - name: Create GitHub Release
+      - name: Check, merge, and release
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ needs.decide.outputs.tag }}" dist/* \
-            --title "${{ needs.decide.outputs.tag }}" \
-            --notes-file release-notes.md
+          set -euo pipefail
 
-  publish-pypi:
-    if: needs.decide.outputs.action == 'tag' && vars.PYPI_PUBLISH_ENABLED == 'true'
-    needs:
-      - decide
-      - tag-release
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
+          pr_number="${{ steps.cpr.outputs.pull-request-number }}"
+          release_tag="${{ steps.prep.outputs.tag }}"
+          if [ -z "$pr_number" ]; then
+            echo "create-pull-request did not return a release PR number" >&2
+            exit 1
+          fi
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+          pr_json="$(gh pr view "$pr_number" --json baseRefOid,headRefName,headRefOid,state)"
+          pr_state="$(jq -r .state <<<"$pr_json")"
+          base_sha="$(jq -r .baseRefOid <<<"$pr_json")"
+          head_ref="$(jq -r .headRefName <<<"$pr_json")"
+          head_sha="$(jq -r .headRefOid <<<"$pr_json")"
+          if [ "$pr_state" != "OPEN" ]; then
+            echo "release PR #${pr_number} is not open (state: ${pr_state})" >&2
+            exit 1
+          fi
 
-      - name: Build
-        run: |
-          python -m pip install -U pip
-          python -m pip install build
-          python -m build
+          latest_run_id() {
+            gh run list \
+              --workflow "$1" \
+              --branch "$head_ref" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,headSha,createdAt \
+              --jq "map(select(.headSha == \"${head_sha}\")) | sort_by(.createdAt) | last | .databaseId // empty"
+          }
 
-      - name: Publish
-        uses: pypa/gh-action-pypi-publish@release/v1
+          wait_for_new_run() {
+            workflow="$1"
+            previous_id="$2"
+            for _ in $(seq 1 30); do
+              run_id="$(latest_run_id "$workflow")"
+              if [ -n "$run_id" ] && [ "$run_id" != "$previous_id" ]; then
+                gh run watch "$run_id" --interval 5 --exit-status
+                return
+              fi
+              sleep 2
+            done
+            echo "timed out waiting for dispatched ${workflow} run" >&2
+            exit 1
+          }
+
+          previous_ci="$(latest_run_id ci.yml)"
+          previous_dependency_review="$(latest_run_id dependency-review.yml)"
+
+          gh workflow run ci.yml --ref "$head_ref"
+          gh workflow run dependency-review.yml \
+            --ref "$head_ref" \
+            -f base_ref="$base_sha" \
+            -f head_ref="$head_sha"
+
+          wait_for_new_run ci.yml "$previous_ci"
+          wait_for_new_run dependency-review.yml "$previous_dependency_review"
+
+          gh pr checks "$pr_number" --required
+          gh pr merge "$pr_number" --squash --match-head-commit "$head_sha"
+          merged="$(gh pr view "$pr_number" --json mergedAt --jq '.mergedAt // empty')"
+          if [ -z "$merged" ]; then
+            echo "release PR #${pr_number} did not merge" >&2
+            exit 1
+          fi
+
+          previous_release="$(
+            gh run list \
+              --workflow release.yml \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,displayTitle,createdAt \
+              --jq "map(select(.displayTitle == \"Release ${release_tag}\")) | sort_by(.createdAt) | last | .databaseId // empty"
+          )"
+          gh workflow run release.yml --ref main -f tag="$release_tag"
+
+          for _ in $(seq 1 30); do
+            release_run="$(
+              gh run list \
+                --workflow release.yml \
+                --event workflow_dispatch \
+                --limit 20 \
+                --json databaseId,displayTitle,createdAt \
+                --jq "map(select(.displayTitle == \"Release ${release_tag}\")) | sort_by(.createdAt) | last | .databaseId // empty"
+            )"
+            if [ -n "$release_run" ] && [ "$release_run" != "$previous_release" ]; then
+              gh run watch "$release_run" --interval 5 --exit-status
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "timed out waiting for the dispatched Release workflow" >&2
+          exit 1
