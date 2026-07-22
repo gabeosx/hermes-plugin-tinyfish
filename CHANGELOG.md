@@ -15,6 +15,8 @@ and this project uses semantic versioning.
 
 ### Changed
 
+- Corrected the development build dependency floor to the latest available
+  non-yanked release so clean CI environments can install the `dev` extra.
 - Made MCP-to-REST degradation observable without logging raw OAuth responses,
   and clarified that a cached token file does not prove credential validity.
 - Serialized plugin-triggered lazy MCP discovery within each process and
