@@ -23,7 +23,7 @@ needs updating.
 
 - Prefer the automated merge-to-release flow. Feature PRs with non-empty
   `CHANGELOG.md` `Unreleased` notes trigger the Auto Release workflow after
-  merge, which opens a release-prep PR, explicitly dispatches its protected
+  merge, which opens a release-prep PR, automatically reruns its protected
   checks, and merges it after they pass.
 - Add `release:patch`, `release:minor`, `release:major`, or `release:none` to
   feature PRs when the default patch bump is not correct.

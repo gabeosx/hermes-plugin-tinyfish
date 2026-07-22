@@ -152,9 +152,8 @@ jobs:
             exit 1
           fi
 
-          pr_json="$(gh pr view "$pr_number" --json baseRefOid,headRefName,headRefOid,state)"
+          pr_json="$(gh pr view "$pr_number" --json headRefName,headRefOid,state)"
           pr_state="$(jq -r .state <<<"$pr_json")"
-          base_sha="$(jq -r .baseRefOid <<<"$pr_json")"
           head_ref="$(jq -r .headRefName <<<"$pr_json")"
           head_sha="$(jq -r .headRefOid <<<"$pr_json")"
           if [ "$pr_state" != "OPEN" ]; then
@@ -162,42 +161,51 @@ jobs:
             exit 1
           fi
 
-          latest_run_id() {
-            gh run list \
-              --workflow "$1" \
-              --branch "$head_ref" \
-              --event workflow_dispatch \
-              --limit 20 \
-              --json databaseId,headSha,createdAt \
-              --jq "map(select(.headSha == \"${head_sha}\")) | sort_by(.createdAt) | last | .databaseId // empty"
-          }
-
-          wait_for_new_run() {
+          rerun_pr_check() {
             workflow="$1"
-            previous_id="$2"
             for _ in $(seq 1 30); do
-              run_id="$(latest_run_id "$workflow")"
-              if [ -n "$run_id" ] && [ "$run_id" != "$previous_id" ]; then
+              run_json="$(
+                gh run list \
+                  --workflow "$workflow" \
+                  --branch "$head_ref" \
+                  --event pull_request \
+                  --limit 20 \
+                  --json attempt,databaseId,headSha,status,conclusion,createdAt \
+                  --jq "map(select(.headSha == \"${head_sha}\")) | sort_by(.createdAt) | last // {}"
+              )"
+              run_id="$(jq -r '.databaseId // empty' <<<"$run_json")"
+              run_attempt="$(jq -r '.attempt // 0' <<<"$run_json")"
+              status="$(jq -r '.status // empty' <<<"$run_json")"
+              conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
+              if [ -n "$run_id" ] && [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "action_required" ]; then
+                  gh run rerun "$run_id"
+                  for _ in $(seq 1 30); do
+                    next_attempt="$(gh run view "$run_id" --json attempt --jq .attempt)"
+                    if [ "$next_attempt" -gt "$run_attempt" ]; then
+                      break
+                    fi
+                    sleep 2
+                  done
+                  if [ "$next_attempt" -le "$run_attempt" ]; then
+                    echo "timed out waiting for ${workflow} rerun to start" >&2
+                    exit 1
+                  fi
+                elif [ "$conclusion" != "success" ]; then
+                  echo "${workflow} pull_request run concluded ${conclusion}" >&2
+                  exit 1
+                fi
                 gh run watch "$run_id" --interval 5 --exit-status
-                return
+                return 0
               fi
               sleep 2
             done
-            echo "timed out waiting for dispatched ${workflow} run" >&2
+            echo "timed out waiting for the ${workflow} pull_request run" >&2
             exit 1
           }
 
-          previous_ci="$(latest_run_id ci.yml)"
-          previous_dependency_review="$(latest_run_id dependency-review.yml)"
-
-          gh workflow run ci.yml --ref "$head_ref"
-          gh workflow run dependency-review.yml \
-            --ref "$head_ref" \
-            -f base_ref="$base_sha" \
-            -f head_ref="$head_sha"
-
-          wait_for_new_run ci.yml "$previous_ci"
-          wait_for_new_run dependency-review.yml "$previous_dependency_review"
+          rerun_pr_check ci.yml
+          rerun_pr_check dependency-review.yml
 
           gh pr merge "$pr_number" --squash --match-head-commit "$head_sha"
           merged="$(gh pr view "$pr_number" --json mergedAt --jq '.mergedAt // empty')"
