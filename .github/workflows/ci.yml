@@ -105,9 +105,13 @@ jobs:
           PY
 
   hermes-compatibility:
-    name: Hermes 0.18.2 compatibility
+    name: Hermes ${{ matrix.hermes-version }} compatibility
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        hermes-version: ["0.18.2", "0.19.0"]
 
     steps:
       - uses: actions/checkout@v7
@@ -127,7 +131,7 @@ jobs:
         run: |
           wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
-          python -m pip install "hermes-agent==0.18.2" "$wheel"
+          python -m pip install "hermes-agent==${{ matrix.hermes-version }}" "$wheel"
 
       - name: Discover and enable plugin
         env:
@@ -165,5 +169,7 @@ jobs:
           assert status["web_extract_backend"] == "tinyfish", status
           assert status["credit_policy"] == {"browser": "deny"}, status
           assert status["retired_credit_policy_keys"] == [], status
+          assert status["diagnostics_schema_version"] == 2, status
+          assert status["mcp_token_cache_note"] == "presence only; OAuth validity is not checked", status
           assert doctor["ok"] is True, doctor
           PY

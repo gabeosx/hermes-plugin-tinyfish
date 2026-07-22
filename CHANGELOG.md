@@ -7,6 +7,33 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- Added conservative MCP OAuth failure classification, explicit reauthorization
+  guidance, transport-specific live diagnostics, `/tinyfish-status`, and
+  `hermes tinyfish reauth`.
+
+### Changed
+
+- Corrected the development build dependency floor to the latest available
+  non-yanked release so clean CI environments can install the `dev` extra.
+- Made MCP-to-REST degradation observable without logging raw OAuth responses,
+  and clarified that a cached token file does not prove credential validity.
+- Serialized plugin-triggered lazy MCP discovery within each process and
+  limited live diagnostics to one discovery opportunity, reducing duplicate
+  connection and OAuth refresh attempts without taking ownership of tokens.
+- Stopped treating a zero exit status from Hermes's MCP login command as proof
+  that browser reauthorization completed; MCP-only live diagnostics remain the
+  authoritative verification step.
+- Replaced nested Hermes subprocesses during interactive MCP login with a
+  direct process handoff, preventing the plugin's parent process from competing
+  for the OAuth callback port. Reauthorization now warns about shared Hermes
+  homes and external gateway supervisors without attempting to manage them.
+- Classified explicit OAuth failures nested inside task-group errors while
+  preserving generic HTTP 400 as unknown, and added safe guidance for visually
+  wrapped authorization URLs, single-flow callbacks, and unreliable login exit
+  status.
+
 ## [0.2.2] - 2026-07-13
 
 ### Added

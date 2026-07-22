@@ -44,7 +44,7 @@ def register(ctx: Any) -> None:
     from .browser_provider import TinyFishBrowserProvider
     from .credit_policy import pre_tool_call_policy
     from .provider import TinyFishWebSearchProvider
-    from .setup_cli import dispatch_tinyfish_cli, setup_tinyfish_cli
+    from .setup_cli import dispatch_tinyfish_cli, setup_tinyfish_cli, tinyfish_status_command
 
     provider = TinyFishWebSearchProvider(dispatch_tool=getattr(ctx, "dispatch_tool", None))
     ctx.register_web_search_provider(provider)
@@ -52,13 +52,27 @@ def register(ctx: Any) -> None:
         ctx.register_browser_provider(TinyFishBrowserProvider())
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", pre_tool_call_policy)
+
+    def _dispatch_cli(args: Any) -> int:
+        exit_code = dispatch_tinyfish_cli(args, provider=provider)
+        if exit_code:
+            raise SystemExit(exit_code)
+        return 0
+
     ctx.register_cli_command(
         name="tinyfish",
         help="Configure and diagnose the TinyFish web provider",
         setup_fn=setup_tinyfish_cli,
-        handler_fn=dispatch_tinyfish_cli,
+        handler_fn=_dispatch_cli,
         description="Configure TinyFish MCP OAuth, API-key fallback, and Hermes web backend routing.",
     )
+    if hasattr(ctx, "register_command"):
+        ctx.register_command(
+            name="tinyfish-status",
+            handler=lambda raw_args: tinyfish_status_command(raw_args, provider=provider),
+            description="Show TinyFish provider status; pass 'live' to test Search and Fetch.",
+            args_hint="[live]",
+        )
 
 
 def __getattr__(name: str) -> Any:

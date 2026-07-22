@@ -38,6 +38,24 @@ pip install hermes-plugin-tinyfish
 hermes tinyfish setup
 ```
 
+## Update
+
+Update an existing Hermes Git plugin installation:
+
+```bash
+hermes plugins update web-tinyfish
+hermes tinyfish status
+hermes tinyfish doctor
+```
+
+If the plugin was installed as a Python package instead, update it with:
+
+```bash
+python -m pip install --upgrade hermes-plugin-tinyfish
+hermes tinyfish status
+hermes tinyfish doctor
+```
+
 ## Safe Default Setup
 
 `hermes tinyfish setup` configures TinyFish for Hermes `web_search` and
@@ -71,10 +89,49 @@ Verify Search and Fetch:
 ```bash
 hermes tinyfish doctor
 hermes tinyfish doctor --live
+hermes tinyfish doctor --live --transport mcp
+hermes tinyfish doctor --live --transport rest
 ```
 
 `doctor --live` runs independent Search and Fetch checks and exits nonzero if
-either fails.
+either fails. The default `auto` transport remains MCP-first and may use the
+REST fallback. Use `--transport mcp` to test OAuth without allowing REST to
+hide an MCP failure, or `--transport rest` to test only the API-key path.
+
+If MCP reports that authorization must be renewed:
+
+```bash
+hermes tinyfish reauth
+```
+
+The command replaces the current plugin CLI process with Hermes's supported
+`hermes mcp login tinyfish` command; it does not start a nested Hermes process.
+If a gateway or another Hermes process shares the same Hermes home, pause that
+process and any supervisor or watchdog for the maintenance window. The plugin
+does not stop host services automatically.
+
+Complete the browser flow, restore and reload or restart affected Hermes
+processes, then verify the recovered OAuth path with
+`hermes tinyfish doctor --live --transport mcp`. The plugin never deletes,
+rewrites, or validates Hermes's OAuth token files itself.
+
+For browser authorization from a headless or remote terminal:
+
+- Complete one authorization flow at a time and never combine an authorization
+  URL with a callback URL from another attempt.
+- Terminal wrapping is visual. Copy the entire URL and do not manually edit
+  OAuth characters such as `state` or the PKCE challenge.
+- If copied terminal text contains line breaks, remove only whitespace. In a
+  local Blink shell on iOS/iPadOS, for example:
+
+  ```bash
+  pbpaste | tr -d '\r\n\t ' | pbcopy
+  ```
+
+- If Hermes prints another authorization URL before reporting success, stop
+  that attempt rather than authorizing multiple URLs.
+- Treat the MCP-only doctor as authoritative. Some Hermes versions can print
+  an authentication failure while still returning shell status 0.
 
 ## Search and Fetch Options
 
@@ -148,11 +205,16 @@ entry intentionally remains restricted to `search` and `fetch_content`.
 hermes tinyfish status
 hermes tinyfish usage
 hermes tinyfish doctor --live
+hermes tinyfish doctor --live --transport mcp
 hermes tinyfish doctor --live-paid
 ```
 
 - `status` is non-secret and reports ignored `0.2.x` policy keys under
   `retired_credit_policy_keys`.
+- `mcp_token_cached` reports only whether Hermes's expected cache file is
+  present. It does not mean the access or refresh token is valid.
+- `/tinyfish-status` shows non-networked status inside CLI or gateway sessions;
+  `/tinyfish-status live` explicitly runs Search and Fetch checks.
 - `usage` reads TinyFish Fetch operation history; it is not Agent or Browser
   billing data.
 - `doctor --live-paid` only creates and closes a TinyFish Browser session. It
@@ -170,11 +232,17 @@ This plugin uses public Hermes extension points:
 - `ctx.register_browser_provider(...)`
 - `ctx.register_hook("pre_tool_call", ...)` for Browser credit policy
 - `ctx.register_cli_command(...)`
+- `ctx.register_command(...)` for `/tinyfish-status`
+- `ctx.dispatch_tool(...)` for registered TinyFish MCP calls
 - Hermes MCP configuration under `mcp_servers`
 - Hermes environment helpers for optional API-key fallback
 
 It does not patch Hermes Agent, update scripts, Dockerfiles, or files inside a
-Hermes installation or source checkout.
+Hermes installation or source checkout. A narrow legacy compatibility shim
+still asks Hermes to discover configured MCP servers when TinyFish tools have
+not been registered in the current process. It is retained because removing it
+reintroduces a previously observed MCP-to-REST regression; it will be removed
+only after every supported Hermes surface owns discovery through a public API.
 
 ## Development
 
@@ -200,6 +268,7 @@ TINYFISH_LIVE_TESTS=1 TINYFISH_API_KEY=... pytest tests/test_live.py
 
 - [Release operations](docs/operations/release.md)
 - [Compatibility testing](docs/operations/compatibility-testing.md)
+- [OAuth hardening compatibility report](docs/operations/oauth-hardening-compatibility-report.md)
 - [User install smoke test](docs/operations/user-install-smoke-test.md)
 - [Hermes extension points](docs/reference/hermes-extension-points.md)
 - [TinyFish integration notes](docs/reference/tinyfish-integration.md)

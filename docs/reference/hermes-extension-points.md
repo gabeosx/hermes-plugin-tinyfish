@@ -12,12 +12,32 @@ instead of modifying Hermes core.
 - Browser credit policy enforcement through
   `ctx.register_hook("pre_tool_call", ...)` and Hermes approval directives.
 - CLI registration through `ctx.register_cli_command(...)`.
+- In-session diagnostics through `ctx.register_command(...)`.
+- Registered MCP tool invocation through `ctx.dispatch_tool(...)`.
 - MCP server configuration under Hermes `mcp_servers`.
 - Optional API-key fallback through Hermes environment helpers and
   `TINYFISH_API_KEY`.
 
 The plugin does not call `ctx.register_tool(...)`: Hermes is the agent, and no
 TinyFish Agent tools are model-callable through this plugin.
+
+## MCP Discovery Compatibility Shim
+
+Hermes does not currently expose a targeted public API for a plugin to query,
+discover, reconnect, or read structured health for one configured MCP server.
+The plugin therefore retains its pre-existing lazy-discovery shim when the
+TinyFish tools are missing. The shim is non-interactive, but Hermes's discovery
+function considers every missing configured MCP server, not only TinyFish.
+Plugin-triggered discovery is single-flight within one process, and a live
+diagnostic gives Search one discovery opportunity rather than immediately
+retrying discovery again for Fetch. These guards reduce plugin-created retry
+pressure but do not coordinate OAuth refresh across separate Hermes processes.
+
+Do not expand this private dependency. Remove it only after CLI, TUI, gateway,
+and diagnostics prove that Hermes-owned startup plus `ctx.dispatch_tool(...)`
+preserve MCP-first Search and Fetch across the supported Hermes versions. The
+requested public host surface is documented in
+[`hermes-mcp-api-gap.md`](hermes-mcp-api-gap.md).
 
 ## User Configuration
 
