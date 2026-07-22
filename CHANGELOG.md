@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.2.3] - 2026-07-22
+
 ### Added
 
 - Added conservative MCP OAuth failure classification, explicit reauthorization
