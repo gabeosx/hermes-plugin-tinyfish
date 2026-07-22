@@ -46,6 +46,24 @@ tinyfish:
 `hermes tinyfish usage` reads Fetch operation history from TinyFish's Fetch
 usage endpoint. It does not report Agent or Browser billing.
 
+Use `hermes tinyfish doctor --live --transport mcp` to test MCP OAuth without
+REST fallback. An explicit `invalid_grant`, authorization challenge, or
+invalid/expired-token response is reported as `reauth_required`; a generic
+HTTP 400 is deliberately left unclassified. Renew through
+`hermes tinyfish reauth`, then reload MCP or restart the affected Hermes
+process. The plugin does not treat token-file presence as proof of validity.
+
+Hermes/MCP may wrap the underlying OAuth exception in a task-group exception.
+The plugin recursively classifies the bounded nested errors so an explicit
+`invalid_grant`, state mismatch, or PKCE mismatch remains `reauth_required`;
+the raw exception text is never returned to the user. A generic HTTP 400 stays
+`unknown`.
+
+The state parameter remains an opaque security value. The plugin never repairs
+or normalizes it. Remote users should remove only whitespace introduced while
+copying a visually wrapped authorization URL and must not mix URLs from
+different attempts.
+
 ## Browser Infrastructure
 
 TinyFish Browser can be selected as Hermes's remote browser provider:

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 try:
     from agent.web_search_provider import WebSearchProvider as _HermesWebSearchProvider
@@ -17,6 +18,13 @@ except Exception:  # pragma: no cover - lets package import outside Hermes
 
 from . import rest_client
 from .config import default_fetch_format, fetch_options, search_options
+from .health import (
+    FailureKind,
+    TinyFishProviderHealth,
+    Transport,
+    classify_mcp_failure,
+    mcp_failure_message,
+)
 from .normalize import TinyFishPayloadError, normalize_fetch_documents, normalize_search_response
 
 logger = logging.getLogger(__name__)
@@ -33,6 +41,13 @@ MCP_FETCH_TOOLS = (
     "mcp_tinyfish_fetch",
 )
 
+# The compatibility shim below calls Hermes's process-global MCP discovery.
+# Serialize plugin-triggered attempts so concurrent TinyFish provider calls do
+# not amplify connection retries or OAuth refresh attempts in the same process.
+# This is deliberately not a token lock and does not coordinate separate
+# Hermes processes; the host still owns OAuth refresh serialization.
+_discovery_lock = threading.Lock()
+
 
 def _provider_env(name: str) -> str:
     """Read Hermes config-aware environment values when available."""
@@ -43,6 +58,14 @@ def _provider_env(name: str) -> str:
         return str(get_provider_env(name) or "").strip()
     except Exception:
         return str(os.getenv(name, "") or "").strip()
+
+
+def _safe_rest_failure(operation: str, exc: Exception) -> str:
+    """Keep controlled REST diagnostics while suppressing arbitrary exceptions."""
+
+    if isinstance(exc, rest_client.TinyFishRestError):
+        return f"TinyFish REST {operation} failed: {exc}"
+    return f"TinyFish REST {operation} failed ({type(exc).__name__})."
 
 
 def _registry() -> Any | None:
@@ -79,26 +102,53 @@ def _tinyfish_mcp_configured() -> bool:
     return bool(mcp_config.get("url") and mcp_config.get("auth") == "oauth")
 
 
-def _discover_tinyfish_mcp_tools() -> None:
-    """Register configured MCP tools for this process without prompting for OAuth."""
+def _discover_tinyfish_mcp_tools(
+    candidates: tuple[str, ...] | None = None,
+) -> None:
+    """Register configured MCP tools once for concurrent plugin callers.
+
+    A caller that arrives while another plugin-triggered discovery is running
+    waits for that attempt and then returns without immediately retrying a
+    failure. A later, independent provider call may try again. This preserves
+    lazy MCP-first behavior while avoiding a same-process retry storm.
+    """
 
     if not _tinyfish_mcp_configured():
         return
-    try:
-        from tools.mcp_oauth import suppress_interactive_oauth
-    except Exception:
-        suppress_interactive_oauth = None
+
+    # True single-flight behavior: waiters share the in-flight attempt even
+    # when it fails, rather than acquiring the lock afterward and immediately
+    # launching the same discovery again.
+    if not _discovery_lock.acquire(blocking=False):
+        with _discovery_lock:
+            return
 
     try:
-        from tools.mcp_tool import discover_mcp_tools
-    except Exception:
-        return
+        # Hermes startup may have registered the requested tools between the
+        # provider's first registry check and this lock acquisition.
+        if candidates is not None:
+            if _first_registered(candidates) is not None:
+                return
+        elif _first_registered(MCP_SEARCH_TOOLS) and _first_registered(MCP_FETCH_TOOLS):
+            return
 
-    if suppress_interactive_oauth is None:
-        discover_mcp_tools()
-        return
-    with suppress_interactive_oauth():
-        discover_mcp_tools()
+        try:
+            from tools.mcp_oauth import suppress_interactive_oauth
+        except Exception:
+            suppress_interactive_oauth = None
+
+        try:
+            from tools.mcp_tool import discover_mcp_tools
+        except Exception:
+            return
+
+        if suppress_interactive_oauth is None:
+            discover_mcp_tools()
+            return
+        with suppress_interactive_oauth():
+            discover_mcp_tools()
+    finally:
+        _discovery_lock.release()
 
 
 def _first_registered(candidates: tuple[str, ...]) -> str | None:
@@ -117,8 +167,13 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
     it falls back to direct REST calls using ``TINYFISH_API_KEY``.
     """
 
-    def __init__(self, dispatch_tool: Callable[[str, dict[str, Any]], str] | None = None):
+    def __init__(
+        self,
+        dispatch_tool: Callable[[str, dict[str, Any]], str] | None = None,
+        health: TinyFishProviderHealth | None = None,
+    ):
         self._dispatch_tool = dispatch_tool
+        self.health = health or TinyFishProviderHealth()
 
     @property
     def name(self) -> str:
@@ -168,17 +223,38 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
             raise TinyFishPayloadError("Hermes tool registry is not available")
         return cast(str, registry.dispatch(tool_name, args))
 
-    def _call_mcp(self, candidates: tuple[str, ...], args: dict[str, Any]) -> Any | None:
+    def _call_mcp(
+        self,
+        candidates: tuple[str, ...],
+        args: dict[str, Any],
+        *,
+        allow_discovery: bool = True,
+    ) -> Any | None:
         tool_name = _first_registered(candidates)
-        if tool_name is None:
-            _discover_tinyfish_mcp_tools()
+        if tool_name is None and allow_discovery:
+            _discover_tinyfish_mcp_tools(candidates)
             tool_name = _first_registered(candidates)
         if tool_name is None:
             return None
         logger.debug("TinyFish using MCP tool %s", tool_name)
         return self._dispatch_registered_tool(tool_name, args)
 
-    def search(self, query: str, limit: int = 5) -> dict[str, Any]:
+    def _record_mcp_failure(
+        self,
+        operation: Literal["search", "fetch"],
+        *details: Any,
+    ) -> FailureKind:
+        kind = classify_mcp_failure(*details)
+        self.health.record_mcp_failure(operation, kind)
+        return kind
+
+    def search(
+        self,
+        query: str,
+        limit: int = 5,
+        *,
+        transport: Transport = "auto",
+    ) -> dict[str, Any]:
         try:
             from tools.interrupt import is_interrupted
 
@@ -187,35 +263,64 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
         except Exception:
             pass
 
-        mcp_error = ""
-        try:
-            payload = self._call_mcp(MCP_SEARCH_TOOLS, {"query": query})
-            if payload is not None:
-                return normalize_search_response(payload, limit=limit)
-        except Exception as exc:  # noqa: BLE001 - REST fallback may still work
-            mcp_error = str(exc)
-            logger.info("TinyFish MCP search unavailable, trying REST fallback: %s", exc)
+        mcp_failure: FailureKind | None = None
+        if transport != "rest":
+            payload: Any | None = None
+            try:
+                payload = self._call_mcp(MCP_SEARCH_TOOLS, {"query": query})
+                if payload is None:
+                    mcp_failure = self._record_mcp_failure("search", "MCP tool is not registered")
+                else:
+                    result = normalize_search_response(payload, limit=limit)
+                    self.health.record_mcp_success("search")
+                    return result
+            except Exception as exc:  # noqa: BLE001 - REST fallback may still work
+                mcp_failure = self._record_mcp_failure("search", payload, exc)
+                logger.info("TinyFish MCP search failed (category=%s)", mcp_failure)
+
+            if transport == "mcp":
+                return {
+                    "success": False,
+                    "error": mcp_failure_message(
+                        mcp_failure or "unknown",
+                        mcp_configured=_tinyfish_mcp_configured(),
+                    ),
+                }
 
         api_key = _provider_env("TINYFISH_API_KEY")
         if not api_key:
-            suffix = f" MCP error: {mcp_error}" if mcp_error else ""
+            if transport == "rest":
+                error = "TINYFISH_API_KEY is required for TinyFish REST search."
+            else:
+                error = mcp_failure_message(
+                    mcp_failure or "mcp_unavailable",
+                    mcp_configured=_tinyfish_mcp_configured(),
+                )
             return {
                 "success": False,
-                "error": (
-                    "TinyFish is not configured. Run `hermes tinyfish setup` "
-                    "to configure MCP OAuth, or set TINYFISH_API_KEY for REST fallback." + suffix
-                ),
+                "error": error,
             }
 
         try:
             raw = rest_client.search(query, api_key=api_key, **search_options())
-            return normalize_search_response(raw, limit=limit)
+            result = normalize_search_response(raw, limit=limit)
+            self.health.record_rest_success("search", mcp_failure=mcp_failure)
+            if mcp_failure is not None:
+                logger.warning("TinyFish search is using REST fallback (MCP category=%s)", mcp_failure)
+            return result
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TinyFish REST search failed: %s", exc)
-            detail = f"; MCP error: {mcp_error}" if mcp_error else ""
-            return {"success": False, "error": f"TinyFish search failed: {exc}{detail}"}
+            self.health.record_rest_failure("search")
+            logger.warning("TinyFish REST search failed (%s)", type(exc).__name__)
+            return {
+                "success": False,
+                "error": _safe_rest_failure("search", exc),
+            }
 
-    def extract(self, urls: list[str], **kwargs: Any) -> list[dict[str, Any]]:
+    def extract(
+        self,
+        urls: list[str],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         try:
             from tools.interrupt import is_interrupted
 
@@ -225,31 +330,59 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
             pass
 
         output_format = str(kwargs.get("format") or kwargs.get("output_format") or default_fetch_format())
-        mcp_error = ""
-        try:
-            payload = self._call_mcp(
-                MCP_FETCH_TOOLS,
-                {"urls": urls, "format": output_format},
-            )
-            if payload is not None:
-                return normalize_fetch_documents(payload, fallback_urls=urls)
-        except Exception as exc:  # noqa: BLE001 - REST fallback may still work
-            mcp_error = str(exc)
-            logger.info("TinyFish MCP fetch unavailable, trying REST fallback: %s", exc)
+        transport = cast(Transport, kwargs.get("transport", "auto"))
+        allow_discovery = not bool(kwargs.get("_skip_mcp_discovery", False))
+        mcp_failure: FailureKind | None = None
+        if transport != "rest":
+            payload: Any | None = None
+            try:
+                payload = self._call_mcp(
+                    MCP_FETCH_TOOLS,
+                    {"urls": urls, "format": output_format},
+                    allow_discovery=allow_discovery,
+                )
+                if payload is None:
+                    mcp_failure = self._record_mcp_failure("fetch", "MCP tool is not registered")
+                else:
+                    result = normalize_fetch_documents(payload, fallback_urls=urls)
+                    self.health.record_mcp_success("fetch")
+                    return result
+            except Exception as exc:  # noqa: BLE001 - REST fallback may still work
+                mcp_failure = self._record_mcp_failure("fetch", payload, exc)
+                logger.info("TinyFish MCP fetch failed (category=%s)", mcp_failure)
+
+            if transport == "mcp":
+                error = mcp_failure_message(
+                    mcp_failure or "unknown",
+                    mcp_configured=_tinyfish_mcp_configured(),
+                )
+                return [
+                    {
+                        "url": url,
+                        "title": "",
+                        "content": "",
+                        "raw_content": "",
+                        "error": error,
+                    }
+                    for url in urls
+                ]
 
         api_key = _provider_env("TINYFISH_API_KEY")
         if not api_key:
-            suffix = f" MCP error: {mcp_error}" if mcp_error else ""
+            if transport == "rest":
+                error = "TINYFISH_API_KEY is required for TinyFish REST fetch."
+            else:
+                error = mcp_failure_message(
+                    mcp_failure or "mcp_unavailable",
+                    mcp_configured=_tinyfish_mcp_configured(),
+                )
             return [
                 {
                     "url": url,
                     "title": "",
                     "content": "",
                     "raw_content": "",
-                    "error": (
-                        "TinyFish is not configured. Run `hermes tinyfish setup` "
-                        "to configure MCP OAuth, or set TINYFISH_API_KEY for REST fallback." + suffix
-                    ),
+                    "error": error,
                 }
                 for url in urls
             ]
@@ -261,17 +394,21 @@ class TinyFishWebSearchProvider(_HermesWebSearchProvider):  # type: ignore[misc]
                 output_format=output_format,
                 **fetch_options(),
             )
-            return normalize_fetch_documents(raw, fallback_urls=urls)
+            result = normalize_fetch_documents(raw, fallback_urls=urls)
+            self.health.record_rest_success("fetch", mcp_failure=mcp_failure)
+            if mcp_failure is not None:
+                logger.warning("TinyFish fetch is using REST fallback (MCP category=%s)", mcp_failure)
+            return result
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TinyFish REST fetch failed: %s", exc)
-            detail = f"; MCP error: {mcp_error}" if mcp_error else ""
+            self.health.record_rest_failure("fetch")
+            logger.warning("TinyFish REST fetch failed (%s)", type(exc).__name__)
             return [
                 {
                     "url": url,
                     "title": "",
                     "content": "",
                     "raw_content": "",
-                    "error": f"TinyFish fetch failed: {exc}{detail}",
+                    "error": _safe_rest_failure("fetch", exc),
                 }
                 for url in urls
             ]

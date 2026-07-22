@@ -5,10 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import rest_client
 from .config import (
@@ -23,14 +22,15 @@ from .config import (
     set_credit_policy,
 )
 from .credit_policy import INDEPENDENT_NOTICE, PRICING_NOTICE, request_credit_approval
+from .health import VALID_TRANSPORTS, TinyFishProviderHealth, Transport
 from .provider import (
     MCP_FETCH_TOOLS,
     MCP_SEARCH_TOOLS,
     TinyFishWebSearchProvider,
-    _discover_tinyfish_mcp_tools,
 )
 
 TINYFISH_MCP_URL = "https://agent.tinyfish.ai/mcp"
+MCP_LOGIN_COMMAND = ("hermes", "mcp", "login", "tinyfish")
 
 
 def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
@@ -57,6 +57,12 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     doctor.add_argument("--live", action="store_true", help="Run a live search/fetch check")
     doctor.add_argument(
+        "--transport",
+        choices=VALID_TRANSPORTS,
+        default="auto",
+        help="Live-check transport: auto (MCP-first), mcp, or rest",
+    )
+    doctor.add_argument(
         "--live-paid",
         action="store_true",
         help="Create and close a TinyFish Browser session according to its credit policy",
@@ -64,6 +70,8 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
 
     status = sub.add_parser("status", help="Print non-secret TinyFish configuration status")
     status.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+
+    sub.add_parser("reauth", help="Renew TinyFish MCP OAuth in an interactive browser")
 
     credits = sub.add_parser("credits", help="Inspect or update TinyFish credit-risking feature policies")
     credits_sub = credits.add_subparsers(dest="credits_command")
@@ -78,19 +86,25 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     usage.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
 
-def dispatch_tinyfish_cli(args: argparse.Namespace) -> int:
+def dispatch_tinyfish_cli(
+    args: argparse.Namespace,
+    *,
+    provider: TinyFishWebSearchProvider | None = None,
+) -> int:
     command = getattr(args, "tinyfish_command", None) or "status"
     if command == "setup":
-        return cmd_setup(args)
+        return cmd_setup(args, provider=provider)
     if command == "doctor":
-        return cmd_doctor(args)
+        return cmd_doctor(args, provider=provider)
     if command == "status":
-        return cmd_status(args)
+        return cmd_status(args, provider=provider)
+    if command == "reauth":
+        return cmd_reauth(args)
     if command == "credits":
         return cmd_credits(args)
     if command == "usage":
         return cmd_usage(args)
-    print("Usage: hermes tinyfish {setup,doctor,status,credits,usage}", file=sys.stderr)
+    print("Usage: hermes tinyfish {setup,doctor,status,reauth,credits,usage}", file=sys.stderr)
     return 2
 
 
@@ -189,7 +203,11 @@ def _apply_default_credit_policy(config: dict[str, Any]) -> None:
         policies.setdefault(feature, "deny")
 
 
-def cmd_setup(args: argparse.Namespace) -> int:
+def cmd_setup(
+    args: argparse.Namespace,
+    *,
+    provider: TinyFishWebSearchProvider | None = None,
+) -> int:
     config = _load_config()
 
     if not getattr(args, "skip_mcp", False):
@@ -227,13 +245,16 @@ def cmd_setup(args: argparse.Namespace) -> int:
     if not should_login and not getattr(args, "skip_login", False) and sys.stdin.isatty():
         should_login = _confirm("Run `hermes mcp login tinyfish` now?", default=True)
     if should_login:
-        result = subprocess.run(["hermes", "mcp", "login", "tinyfish"], check=False)
-        if result.returncode != 0:
-            print("TinyFish MCP login did not complete. You can retry with `hermes mcp login tinyfish`.")
+        if getattr(args, "live", False):
+            print(
+                "The interactive OAuth handoff replaces this setup process. After it exits, "
+                "run `hermes tinyfish doctor --live --transport mcp` separately."
+            )
+        return _handoff_to_mcp_login()
 
     if getattr(args, "live", False):
-        doctor_args = argparse.Namespace(json=False, live=True)
-        return cmd_doctor(doctor_args)
+        doctor_args = argparse.Namespace(json=False, live=True, live_paid=False, transport="auto")
+        return cmd_doctor(doctor_args, provider=provider)
 
     print("Run `hermes tinyfish doctor --live` to verify the setup.")
     browser_policy = credit_policy_summary(config)["browser"]
@@ -244,10 +265,64 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tool_names(*, discover_mcp: bool = False) -> set[str]:
+def cmd_reauth(args: argparse.Namespace) -> int:
+    """Replace this process with Hermes's supported interactive MCP login."""
+
+    del args
+    return _handoff_to_mcp_login()
+
+
+def _handoff_to_mcp_login() -> int:
+    """Exec Hermes MCP login without leaving a competing parent process.
+
+    A subprocess is unsafe here because the current Hermes process may already
+    have initialized MCP OAuth state or reserved the cached callback port. An
+    exec-style handoff retains the terminal but closes process-local resources
+    before the supported core command starts.
+    """
+
+    print("Handing this terminal directly to `hermes mcp login tinyfish`.")
+    print(
+        "If another Hermes process shares this Hermes home (for example, a gateway), "
+        "pause it and any supervisor or watchdog during OAuth maintenance."
+    )
+    print("The TinyFish plugin does not stop or restart external processes automatically.")
+    print(
+        "Complete one browser flow at a time. Do not manually edit OAuth URL characters; "
+        "if terminal copying inserts line breaks, remove only whitespace."
+    )
+    print(
+        "If Hermes prints another authorization URL before reporting success, stop rather "
+        "than mixing callback URLs from different attempts."
+    )
+    print(
+        "After authorization, reload or restart affected Hermes processes and verify with "
+        "`hermes tinyfish doctor --live --transport mcp`."
+    )
+    print(
+        "The MCP-only doctor is authoritative because some Hermes versions may return shell "
+        "status 0 even when their login output reports failure."
+    )
+    sys.stdout.flush()
+    sys.stderr.flush()
     try:
-        if discover_mcp:
-            _discover_tinyfish_mcp_tools()
+        os.execvp(MCP_LOGIN_COMMAND[0], list(MCP_LOGIN_COMMAND))
+    except OSError as exc:
+        print(
+            f"Could not hand off to the Hermes CLI ({type(exc).__name__}). Run "
+            "`hermes mcp login tinyfish` from an interactive terminal.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # os.execvp() does not return after a successful process replacement. Keep
+    # this defensive fallback for unusual runtimes and test doubles.
+    print("Hermes MCP login handoff returned unexpectedly.", file=sys.stderr)
+    return 1
+
+
+def _tool_names() -> set[str]:
+    try:
         from tools.registry import registry
 
         return set(registry.get_all_tool_names())
@@ -255,22 +330,44 @@ def _tool_names(*, discover_mcp: bool = False) -> set[str]:
         return set()
 
 
-def collect_status(*, live: bool = False) -> dict[str, Any]:
+def _health_status(provider: Any) -> dict[str, Any]:
+    health = getattr(provider, "health", None)
+    snapshot_fn = getattr(health, "snapshot", None)
+    if callable(snapshot_fn):
+        snapshot = snapshot_fn()
+        as_dict = getattr(snapshot, "as_dict", None)
+        if callable(as_dict):
+            return dict(as_dict())
+    return TinyFishProviderHealth().snapshot().as_dict()
+
+
+def collect_status(
+    *,
+    live: bool = False,
+    transport: Transport = "auto",
+    provider: TinyFishWebSearchProvider | None = None,
+) -> dict[str, Any]:
     config = _load_config()
     mcp_cfg = (config.get("mcp_servers") or {}).get("tinyfish") or {}
     web_cfg = config.get("web") or {}
-    names = _tool_names(discover_mcp=live)
+    # Do not start a separate discovery pass merely to populate status. In a
+    # live check, Search gets the one lazy-discovery opportunity and Fetch is
+    # prevented from immediately repeating it if registration still failed.
+    names = _tool_names()
     token_path = _hermes_home() / "mcp-tokens" / "tinyfish.json"
     api_key_configured = bool(_get_env("TINYFISH_API_KEY"))
-    provider = TinyFishWebSearchProvider()
+    provider = provider or TinyFishWebSearchProvider()
+    health = _health_status(provider)
 
     checks: dict[str, Any] = {
+        "diagnostics_schema_version": 2,
         "plugin_loaded": True,
         "provider_available": provider.is_available(),
         "mcp_configured": bool(mcp_cfg.get("url") == TINYFISH_MCP_URL and mcp_cfg.get("auth") == "oauth"),
         "mcp_search_tool_registered": any(name in names for name in MCP_SEARCH_TOOLS),
         "mcp_fetch_tool_registered": any(name in names for name in MCP_FETCH_TOOLS),
         "mcp_token_cached": token_path.exists(),
+        "mcp_token_cache_note": "presence only; OAuth validity is not checked",
         "api_key_fallback_configured": api_key_configured,
         "credit_policy": credit_policy_summary(config),
         "retired_credit_policy_keys": retired_credit_policy_keys(config),
@@ -281,21 +378,28 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
         "browser_cloud_provider": (config.get("browser") or {}).get("cloud_provider", "")
         if isinstance(config.get("browser") or {}, dict)
         else "",
+        **health,
     }
 
     checks["web_backend_configured"] = (
         checks["web_search_backend"] == "tinyfish" and checks["web_extract_backend"] == "tinyfish"
     )
 
-    configured_ok = bool(
-        checks["web_backend_configured"]
-        and (checks["mcp_configured"] or checks["api_key_fallback_configured"])
-    )
+    if transport == "mcp":
+        selected_transport_configured = checks["mcp_configured"]
+    elif transport == "rest":
+        selected_transport_configured = checks["api_key_fallback_configured"]
+    else:
+        selected_transport_configured = bool(
+            checks["mcp_configured"] or checks["api_key_fallback_configured"]
+        )
+    configured_ok = bool(checks["web_backend_configured"] and selected_transport_configured)
     checks["ok"] = configured_ok
 
     if live:
+        checks["live_transport_requested"] = transport
         try:
-            search = provider.search("TinyFish web agent", limit=1)
+            search = provider.search("TinyFish web agent", limit=1, transport=transport)
             checks["live_search_ok"] = bool(search.get("success") and search.get("data", {}).get("web"))
             if not checks["live_search_ok"]:
                 checks["live_search_error"] = str(
@@ -303,10 +407,17 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
                 )
         except Exception as exc:  # noqa: BLE001
             checks["live_search_ok"] = False
-            checks["live_search_error"] = f"{type(exc).__name__}: {exc}"
+            checks["live_search_error"] = f"TinyFish Search check failed ({type(exc).__name__})."
+        search_health = _health_status(provider)
+        checks["live_search_transport"] = search_health["search_transport"]
 
         try:
-            fetch = provider.extract(["https://docs.tinyfish.ai/"], format="markdown")
+            fetch = provider.extract(
+                ["https://docs.tinyfish.ai/"],
+                format="markdown",
+                transport=transport,
+                _skip_mcp_discovery=transport != "rest",
+            )
             extracted_content = ""
             if fetch:
                 extracted_content = str(fetch[0].get("content") or fetch[0].get("raw_content") or "").strip()
@@ -316,41 +427,64 @@ def collect_status(*, live: bool = False) -> dict[str, Any]:
                 checks["live_fetch_error"] = str(error or "TinyFish Fetch returned no extracted content.")
         except Exception as exc:  # noqa: BLE001
             checks["live_fetch_ok"] = False
-            checks["live_fetch_error"] = f"{type(exc).__name__}: {exc}"
+            checks["live_fetch_error"] = f"TinyFish Fetch check failed ({type(exc).__name__})."
+
+        final_health = _health_status(provider)
+        checks.update(final_health)
+        checks["live_fetch_transport"] = final_health["fetch_transport"]
+
+        # Report the registry state produced by the provider's single
+        # discovery opportunity, without initiating another connection.
+        names = _tool_names()
+        checks["mcp_search_tool_registered"] = any(name in names for name in MCP_SEARCH_TOOLS)
+        checks["mcp_fetch_tool_registered"] = any(name in names for name in MCP_FETCH_TOOLS)
 
         checks["ok"] = bool(configured_ok and checks["live_search_ok"] and checks["live_fetch_ok"])
     return checks
 
 
-def _print_status(status: dict[str, Any]) -> None:
-    print("TinyFish Hermes plugin status")
-    print(f"  notice: {INDEPENDENT_NOTICE}")
-    print(f"  pricing: {PRICING_NOTICE}")
+def _status_lines(status: dict[str, Any]) -> list[str]:
+    lines = [
+        "TinyFish Hermes plugin status",
+        f"  notice: {INDEPENDENT_NOTICE}",
+        f"  pricing: {PRICING_NOTICE}",
+    ]
     for key in sorted(status):
         if key in {"independent_plugin_notice", "pricing_notice"}:
             continue
         value = status[key]
         if key == "credit_policy" and isinstance(value, dict):
-            print("  credit_policy:")
+            lines.append("  credit_policy:")
             for feature in CREDIT_FEATURES:
-                print(f"    {feature}: {value.get(feature, 'deny')}")
+                lines.append(f"    {feature}: {value.get(feature, 'deny')}")
             continue
         if key == "retired_credit_policy_keys" and isinstance(value, list):
             ordered = [feature for feature in RETIRED_CREDIT_POLICY_KEYS if feature in value]
-            print(f"  retired_credit_policy_keys: {', '.join(ordered) if ordered else 'none'}")
+            lines.append(f"  retired_credit_policy_keys: {', '.join(ordered) if ordered else 'none'}")
             if ordered:
-                print(
+                lines.append(
                     "  WARNING: retired TinyFish Agent/Profile policy keys are ignored. "
                     "Run `hermes tinyfish credits reset` to remove them."
                 )
             continue
         if isinstance(value, bool):
             value = "yes" if value else "no"
-        print(f"  {key}: {value}")
+        if value is None:
+            value = "none"
+        lines.append(f"  {key}: {value}")
+    return lines
 
 
-def cmd_status(args: argparse.Namespace) -> int:
-    status = collect_status(live=False)
+def _print_status(status: dict[str, Any]) -> None:
+    print("\n".join(_status_lines(status)))
+
+
+def cmd_status(
+    args: argparse.Namespace,
+    *,
+    provider: TinyFishWebSearchProvider | None = None,
+) -> int:
+    status = collect_status(live=False, provider=provider)
     if getattr(args, "json", False):
         print(json.dumps(status, indent=2, sort_keys=True))
     else:
@@ -358,8 +492,25 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    status = collect_status(live=bool(getattr(args, "live", False)))
+def cmd_doctor(
+    args: argparse.Namespace,
+    *,
+    provider: TinyFishWebSearchProvider | None = None,
+) -> int:
+    live = bool(getattr(args, "live", False))
+    transport = str(getattr(args, "transport", "auto") or "auto")
+    if transport not in VALID_TRANSPORTS:
+        print(f"Unknown TinyFish diagnostic transport: {transport}", file=sys.stderr)
+        return 2
+    if not live and transport != "auto":
+        print("`--transport` requires `--live`.", file=sys.stderr)
+        return 2
+
+    status = collect_status(
+        live=live,
+        transport=cast(Transport, transport),
+        provider=provider,
+    )
     if getattr(args, "live_paid", False):
         paid_ok = _run_live_paid_checks(status)
         status["ok"] = bool(status["ok"] and paid_ok)
@@ -369,23 +520,60 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _print_status(status)
         if not status["ok"]:
             print()
-            configured = bool(
-                status.get("web_backend_configured")
-                and (status.get("mcp_configured") or status.get("api_key_fallback_configured"))
-            )
-            if not configured:
-                print("Recommended next step: run `hermes tinyfish setup`.")
-            elif not status.get("live_search_ok", True) or not status.get("live_fetch_ok", True):
-                print(
-                    "Recommended next step: retry the live checks and verify TinyFish MCP OAuth "
-                    "or API credentials and service availability."
+            if transport == "mcp":
+                credential_path_configured = status.get("mcp_configured")
+            elif transport == "rest":
+                credential_path_configured = status.get("api_key_fallback_configured")
+            else:
+                credential_path_configured = bool(
+                    status.get("mcp_configured") or status.get("api_key_fallback_configured")
                 )
+            configured = bool(status.get("web_backend_configured") and credential_path_configured)
+            if not configured:
+                if transport == "rest" and not status.get("api_key_fallback_configured"):
+                    print(
+                        "Recommended next step: configure TINYFISH_API_KEY, then retry the "
+                        "REST-only live check."
+                    )
+                else:
+                    print("Recommended next step: run `hermes tinyfish setup`.")
+            elif not status.get("live_search_ok", True) or not status.get("live_fetch_ok", True):
+                failure_kind = status.get("last_failure_kind")
+                if failure_kind == "reauth_required":
+                    print(
+                        "Recommended next step: run `hermes tinyfish reauth` interactively, then "
+                        "run `/reload-mcp` or restart Hermes."
+                    )
+                elif failure_kind == "mcp_unavailable":
+                    print(
+                        "Recommended next step: run `/reload-mcp` or restart Hermes; if prompted, "
+                        "run `hermes tinyfish reauth` first."
+                    )
+                else:
+                    print(
+                        "Recommended next step: retry the live checks and verify TinyFish MCP OAuth "
+                        "or API credentials and service availability."
+                    )
             else:
                 print(
                     "Recommended next step: review the Browser credit policy and API key, "
                     "then retry `hermes tinyfish doctor --live-paid`."
                 )
     return 0 if status["ok"] else 1
+
+
+def tinyfish_status_command(
+    raw_args: str,
+    *,
+    provider: TinyFishWebSearchProvider,
+) -> str:
+    """Serve the in-session ``/tinyfish-status`` command."""
+
+    option = (raw_args or "").strip().lower()
+    if option not in {"", "live"}:
+        return "Usage: /tinyfish-status [live]"
+    status = collect_status(live=option == "live", transport="auto", provider=provider)
+    return "\n".join(_status_lines(status))
 
 
 def _print_json_or_text(payload: dict[str, Any], *, as_json: bool) -> None:

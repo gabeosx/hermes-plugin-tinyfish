@@ -10,6 +10,7 @@ import pytest
 
 from hermes_plugin_tinyfish import setup_cli as cli
 from hermes_plugin_tinyfish.config import credit_policy_summary
+from hermes_plugin_tinyfish.health import TinyFishProviderHealth
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -38,6 +39,9 @@ def _configured_config(*, browser_policy: str = "deny", retired: bool = False) -
 class _FakeProvider:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.transports: list[str] = []
+        self.fetch_discovery_skips: list[bool] = []
+        self.health = TinyFishProviderHealth()
         self.search_result: dict[str, Any] = {
             "success": True,
             "data": {"web": [{"url": "https://example.com"}]},
@@ -49,20 +53,38 @@ class _FakeProvider:
     def is_available(self) -> bool:
         return True
 
-    def search(self, query: str, *, limit: int) -> dict[str, Any]:
+    def search(self, query: str, *, limit: int, transport: str = "auto") -> dict[str, Any]:
         assert query
         assert limit == 1
         self.calls.append("search")
+        self.transports.append(transport)
         if self.search_exception is not None:
             raise self.search_exception
+        if transport == "rest":
+            self.health.record_rest_success("search")
+        else:
+            self.health.record_mcp_success("search")
         return self.search_result
 
-    def extract(self, urls: list[str], *, format: str) -> list[dict[str, Any]]:
+    def extract(
+        self,
+        urls: list[str],
+        *,
+        format: str,
+        transport: str = "auto",
+        _skip_mcp_discovery: bool = False,
+    ) -> list[dict[str, Any]]:
         assert urls == ["https://docs.tinyfish.ai/"]
         assert format == "markdown"
         self.calls.append("fetch")
+        self.transports.append(transport)
+        self.fetch_discovery_skips.append(_skip_mcp_discovery)
         if self.fetch_exception is not None:
             raise self.fetch_exception
+        if transport == "rest":
+            self.health.record_rest_success("fetch")
+        else:
+            self.health.record_mcp_success("fetch")
         return self.fetch_result
 
 
@@ -168,7 +190,8 @@ def test_setup_live_delegates_to_authoritative_doctor(monkeypatch: pytest.Monkey
     monkeypatch.setattr(cli, "_get_env", lambda name: "already-configured")
     received: list[argparse.Namespace] = []
 
-    def doctor(args: argparse.Namespace) -> int:
+    def doctor(args: argparse.Namespace, **kwargs: Any) -> int:
+        assert kwargs == {"provider": None}
         received.append(args)
         return 1
 
@@ -180,6 +203,25 @@ def test_setup_live_delegates_to_authoritative_doctor(monkeypatch: pytest.Monkey
     assert len(received) == 1
     assert received[0].live is True
     assert received[0].json is False
+    assert received[0].transport == "auto"
+
+
+def test_setup_login_uses_non_nested_process_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "_load_config", lambda: {})
+    monkeypatch.setattr(cli, "_save_config", lambda config: None)
+    monkeypatch.setattr(cli, "_get_env", lambda name: "already-configured")
+    handoffs: list[bool] = []
+
+    def handoff() -> int:
+        handoffs.append(True)
+        return 17
+
+    monkeypatch.setattr(cli, "_handoff_to_mcp_login", handoff)
+
+    args = _parser().parse_args(["setup", "--yes", "--login"])
+
+    assert cli.dispatch_tinyfish_cli(args) == 17
+    assert handoffs == [True]
 
 
 @pytest.mark.parametrize(
@@ -187,6 +229,7 @@ def test_setup_live_delegates_to_authoritative_doctor(monkeypatch: pytest.Monkey
     [
         ("doctor", "cmd_doctor"),
         ("status", "cmd_status"),
+        ("reauth", "cmd_reauth"),
         ("credits", "cmd_credits"),
         ("usage", "cmd_usage"),
     ],
@@ -196,7 +239,11 @@ def test_dispatch_routes_core_commands(
 ) -> None:
     received: list[argparse.Namespace] = []
 
-    def handler(args: argparse.Namespace) -> int:
+    def handler(args: argparse.Namespace, **kwargs: Any) -> int:
+        if command in {"doctor", "status"}:
+            assert kwargs == {"provider": None}
+        else:
+            assert kwargs == {}
         received.append(args)
         return 7
 
@@ -210,7 +257,7 @@ def test_dispatch_rejects_unknown_command(capsys: pytest.CaptureFixture[str]) ->
     result = cli.dispatch_tinyfish_cli(argparse.Namespace(tinyfish_command="unknown"))
 
     assert result == 2
-    assert "{setup,doctor,status,credits,usage}" in capsys.readouterr().err
+    assert "{setup,doctor,status,reauth,credits,usage}" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", ["agent", "profiles"])
@@ -241,6 +288,9 @@ def test_collect_status_always_reports_empty_retired_keys(
     assert status["ok"] is True
     assert status["credit_policy"] == {"browser": "deny"}
     assert status["retired_credit_policy_keys"] == []
+    assert status["diagnostics_schema_version"] == 2
+    assert status["mcp_token_cache_note"] == "presence only; OAuth validity is not checked"
+    assert status["mcp_runtime_state"] == "not_checked"
     assert config == before
 
 
@@ -291,8 +341,12 @@ def test_live_doctor_runs_search_and_fetch_and_succeeds(
 
     assert result == 0
     assert provider.calls == ["search", "fetch"]
+    assert provider.transports == ["auto", "auto"]
     assert payload["live_search_ok"] is True
     assert payload["live_fetch_ok"] is True
+    assert payload["live_search_transport"] == "mcp"
+    assert payload["live_fetch_transport"] == "mcp"
+    assert payload["mcp_runtime_state"] == "healthy"
     assert payload["ok"] is True
 
 
@@ -311,7 +365,7 @@ def test_live_doctor_runs_fetch_after_search_exception_and_fails_authoritatively
     assert payload["live_search_ok"] is False
     assert payload["live_fetch_ok"] is True
     assert payload["ok"] is False
-    assert "search unavailable" in payload["live_search_error"]
+    assert payload["live_search_error"] == "TinyFish Search check failed (RuntimeError)."
 
 
 def test_live_doctor_records_fetch_exception_and_recommends_retry_not_setup(
@@ -347,15 +401,93 @@ def test_live_doctor_rejects_fetch_result_without_extracted_content(
     assert payload["ok"] is False
 
 
-def test_tool_discovery_failure_is_treated_as_no_registered_tools(
+@pytest.mark.parametrize("transport", ["auto", "mcp", "rest"])
+def test_live_doctor_honors_requested_transport(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    transport: str,
 ) -> None:
-    def fail_discovery() -> None:
-        raise RuntimeError("discovery failed")
+    provider = _FakeProvider()
+    _install_status_environment(monkeypatch, tmp_path, provider)
 
-    monkeypatch.setattr(cli, "_discover_tinyfish_mcp_tools", fail_discovery)
+    result = cli.cmd_doctor(
+        argparse.Namespace(json=True, live=True, live_paid=False, transport=transport),
+        provider=provider,
+    )
+    payload = json.loads(capsys.readouterr().out)
 
-    assert cli._tool_names(discover_mcp=True) == set()
+    assert result == 0
+    assert provider.transports == [transport, transport]
+    assert provider.fetch_discovery_skips == [transport != "rest"]
+    assert payload["live_transport_requested"] == transport
+
+
+def test_doctor_rejects_transport_without_live(capsys: pytest.CaptureFixture[str]) -> None:
+    result = cli.cmd_doctor(argparse.Namespace(json=False, live=False, live_paid=False, transport="mcp"))
+
+    assert result == 2
+    assert "--transport" in capsys.readouterr().err
+
+
+def test_reauth_replaces_process_with_supported_hermes_login(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    class ProcessReplaced(Exception):
+        pass
+
+    def execvp(executable: str, command: list[str]) -> None:
+        calls.append((executable, command))
+        raise ProcessReplaced
+
+    monkeypatch.setattr(cli.os, "execvp", execvp)
+
+    with pytest.raises(ProcessReplaced):
+        cli.cmd_reauth(argparse.Namespace())
+    output = capsys.readouterr().out
+    assert calls == [("hermes", ["hermes", "mcp", "login", "tinyfish"])]
+    assert "directly" in output
+    assert "supervisor or watchdog" in output
+    assert "does not stop or restart" in output
+    assert "remove only whitespace" in output
+    assert "mixing callback URLs" in output
+    assert "status 0" in output
+    assert "doctor --live --transport mcp" in output
+
+
+def test_reauth_reports_failed_process_handoff_without_printing_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_exec(executable: str, command: list[str]) -> None:
+        del executable, command
+        raise FileNotFoundError("hermes")
+
+    monkeypatch.setattr(cli.os, "execvp", fail_exec)
+
+    assert cli.cmd_reauth(argparse.Namespace()) == 1
+    error = capsys.readouterr().err
+    assert "Could not hand off" in error
+    assert "token" not in error.lower()
+
+
+def test_slash_status_supports_non_live_and_live_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _FakeProvider()
+    _install_status_environment(monkeypatch, tmp_path, provider)
+
+    non_live = cli.tinyfish_status_command("", provider=provider)
+    live = cli.tinyfish_status_command("live", provider=provider)
+
+    assert "TinyFish Hermes plugin status" in non_live
+    assert provider.calls == ["search", "fetch"]
+    assert "live_search_ok: yes" in live
+    assert cli.tinyfish_status_command("unexpected", provider=provider) == ("Usage: /tinyfish-status [live]")
 
 
 def test_live_paid_refuses_denied_browser_without_approval_or_api_call(
@@ -491,7 +623,7 @@ def test_doctor_live_paid_failure_updates_json_ok_and_exit_status(
     monkeypatch.setattr(
         cli,
         "collect_status",
-        lambda *, live=False: {
+        lambda **kwargs: {
             "ok": True,
             "web_backend_configured": True,
             "mcp_configured": True,

@@ -17,8 +17,9 @@ Browser policy, and gateway loading.
 
 ## Automated Compatibility Baseline
 
-CI builds the plugin wheel, installs it with `hermes-agent==0.18.2` on Python
-3.12, and uses an isolated `HERMES_HOME` to verify:
+CI builds the plugin wheel, installs it with the minimum supported
+`hermes-agent==0.18.2` and current `0.19.0` release on Python 3.12, and uses an
+isolated `HERMES_HOME` to verify:
 
 - entry-point plugin discovery and enablement;
 - setup with `--yes --skip-login` and no secrets;
@@ -93,15 +94,56 @@ mcp_servers:
 Verify both modes separately:
 
 1. MCP-only: complete OAuth setup, remove REST fallback from the disposable
-   environment, and run `hermes tinyfish doctor --live`.
+   environment, and run
+   `hermes tinyfish doctor --live --transport mcp`.
 2. REST-only: omit TinyFish MCP configuration, supply an API key through the
-   disposable environment, and run `hermes tinyfish doctor --live`.
+   disposable environment, and run
+   `hermes tinyfish doctor --live --transport rest`.
 
 Search and Fetch run independently. The command must exit nonzero if either
 fails. Record which transport was used without recording credentials.
+When MCP tools are initially absent, one live diagnostic run must make at most
+one plugin-triggered discovery attempt; Fetch must not immediately repeat a
+failed Search discovery. Concurrent provider calls in one process must share
+one in-flight plugin discovery attempt.
 
 Confirm Hermes resolves both `web_search` and `web_extract` to `tinyfish` and
 does not fall back to Firecrawl, Tavily, or another provider.
+
+## OAuth Recovery and Discovery Gate
+
+When testing a real authorization failure, never copy or print token files.
+Record only the sanitized failure category and commands/exit codes:
+
+```bash
+hermes tinyfish doctor --live --transport mcp
+hermes tinyfish reauth
+# In the affected session:
+/reload-mcp
+hermes tinyfish doctor --live --transport mcp
+```
+
+For headless authorization, copy the complete URL without manually editing its
+`state`, PKCE challenge, or other characters. If terminal selection inserts
+line breaks, remove only whitespace before opening the URL. A second
+authorization URL before success means the first flow failed; stop rather than
+mixing callback URLs from different attempts.
+
+Failure-injection coverage must verify that explicit OAuth errors remain
+classifiable when wrapped in a task-group/exception-group container. A grouped
+generic HTTP 400 must remain `unknown`. State mismatch must be treated as an
+authorization failure, but tests must never weaken or bypass the state check.
+
+The core login command's human-readable result and the MCP-only doctor are the
+authoritative signals. Do not treat shell status 0 alone as proof that a token
+was saved.
+
+Test CLI, TUI, gateway, and plugin diagnostics on the minimum and latest
+supported Hermes versions. The private lazy-discovery shim may be removed only
+when each surface registers TinyFish before its first provider call, public
+`ctx.dispatch_tool` reaches Search and Fetch, and reload recovers a parked
+server without plugin-triggered discovery. If any condition fails, retain the
+shim and update the public-API gap report rather than patching Hermes.
 
 ## Browser Check
 
