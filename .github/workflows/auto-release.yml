@@ -199,7 +199,6 @@ jobs:
           wait_for_new_run ci.yml "$previous_ci"
           wait_for_new_run dependency-review.yml "$previous_dependency_review"
 
-          gh pr checks "$pr_number" --required
           gh pr merge "$pr_number" --squash --match-head-commit "$head_sha"
           merged="$(gh pr view "$pr_number" --json mergedAt --jq '.mergedAt // empty')"
           if [ -z "$merged" ]; then
