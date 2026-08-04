@@ -35,6 +35,7 @@ Python package install:
 
 ```bash
 pip install hermes-plugin-tinyfish
+hermes plugins enable web-tinyfish
 hermes tinyfish setup
 ```
 

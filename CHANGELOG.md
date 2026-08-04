@@ -7,6 +7,11 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Fixed
+
+- Added the required Hermes plugin enable step to the Python package install
+  instructions before running TinyFish setup.
+
 ## [0.3.0] - 2026-08-04
 
 ### Added
