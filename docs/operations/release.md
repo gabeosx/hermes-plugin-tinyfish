@@ -124,5 +124,6 @@ selection, and any skipped live checks without recording secrets.
 
 - [Compatibility testing](compatibility-testing.md)
 - [User install smoke test](user-install-smoke-test.md)
+- [Routing/update release readiness report](routing-update-release-readiness-report.md)
 - [Project releases](https://github.com/gabeosx/hermes-plugin-tinyfish/releases)
 - [PyPI package](https://pypi.org/project/hermes-plugin-tinyfish/)

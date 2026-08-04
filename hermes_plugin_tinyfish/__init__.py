@@ -39,22 +39,28 @@ __version__ = _resolve_version()
 
 
 def register(ctx: Any) -> None:
-    """Register TinyFish providers, Browser policy hook, and CLI commands."""
+    """Register TinyFish providers, lifecycle hooks, and CLI commands."""
 
     from .browser_provider import TinyFishBrowserProvider
     from .credit_policy import pre_tool_call_policy
     from .provider import TinyFishWebSearchProvider
+    from .routing_context import TinyFishTurnContext
     from .setup_cli import dispatch_tinyfish_cli, setup_tinyfish_cli, tinyfish_status_command
+    from .update_check import UpdateChecker, resolve_install_info
 
     provider = TinyFishWebSearchProvider(dispatch_tool=getattr(ctx, "dispatch_tool", None))
+    update_checker = UpdateChecker(resolve_install_info(ctx, __version__))
+    turn_context = TinyFishTurnContext(update_checker)
     ctx.register_web_search_provider(provider)
     if hasattr(ctx, "register_browser_provider"):
         ctx.register_browser_provider(TinyFishBrowserProvider())
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", pre_tool_call_policy)
+        ctx.register_hook("pre_llm_call", turn_context)
+    update_checker.start()
 
     def _dispatch_cli(args: Any) -> int:
-        exit_code = dispatch_tinyfish_cli(args, provider=provider)
+        exit_code = dispatch_tinyfish_cli(args, provider=provider, update_checker=update_checker)
         if exit_code:
             raise SystemExit(exit_code)
         return 0
@@ -69,7 +75,11 @@ def register(ctx: Any) -> None:
     if hasattr(ctx, "register_command"):
         ctx.register_command(
             name="tinyfish-status",
-            handler=lambda raw_args: tinyfish_status_command(raw_args, provider=provider),
+            handler=lambda raw_args: tinyfish_status_command(
+                raw_args,
+                provider=provider,
+                update_checker=update_checker,
+            ),
             description="Show TinyFish provider status; pass 'live' to test Search and Fetch.",
             args_hint="[live]",
         )

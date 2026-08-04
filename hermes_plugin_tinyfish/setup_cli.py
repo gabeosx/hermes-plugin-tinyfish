@@ -14,11 +14,13 @@ from .config import (
     CREDIT_FEATURES,
     CREDIT_POLICIES,
     RETIRED_CREDIT_POLICY_KEYS,
+    TINYFISH_MCP_URL,
     credit_policy_summary,
     normalize_feature,
     normalize_policy,
     reset_credit_policies,
     retired_credit_policy_keys,
+    routing_context_enabled,
     set_credit_policy,
 )
 from .credit_policy import INDEPENDENT_NOTICE, PRICING_NOTICE, request_credit_approval
@@ -28,8 +30,9 @@ from .provider import (
     MCP_SEARCH_TOOLS,
     TinyFishWebSearchProvider,
 )
+from .routing_context import tinyfish_mcp_configured
+from .update_check import InstallInfo, UpdateChecker
 
-TINYFISH_MCP_URL = "https://agent.tinyfish.ai/mcp"
 MCP_LOGIN_COMMAND = ("hermes", "mcp", "login", "tinyfish")
 
 
@@ -90,14 +93,15 @@ def dispatch_tinyfish_cli(
     args: argparse.Namespace,
     *,
     provider: TinyFishWebSearchProvider | None = None,
+    update_checker: UpdateChecker | None = None,
 ) -> int:
     command = getattr(args, "tinyfish_command", None) or "status"
     if command == "setup":
-        return cmd_setup(args, provider=provider)
+        return cmd_setup(args, provider=provider, update_checker=update_checker)
     if command == "doctor":
-        return cmd_doctor(args, provider=provider)
+        return cmd_doctor(args, provider=provider, update_checker=update_checker)
     if command == "status":
-        return cmd_status(args, provider=provider)
+        return cmd_status(args, provider=provider, update_checker=update_checker)
     if command == "reauth":
         return cmd_reauth(args)
     if command == "credits":
@@ -207,6 +211,7 @@ def cmd_setup(
     args: argparse.Namespace,
     *,
     provider: TinyFishWebSearchProvider | None = None,
+    update_checker: UpdateChecker | None = None,
 ) -> int:
     config = _load_config()
 
@@ -254,7 +259,7 @@ def cmd_setup(
 
     if getattr(args, "live", False):
         doctor_args = argparse.Namespace(json=False, live=True, live_paid=False, transport="auto")
-        return cmd_doctor(doctor_args, provider=provider)
+        return cmd_doctor(doctor_args, provider=provider, update_checker=update_checker)
 
     print("Run `hermes tinyfish doctor --live` to verify the setup.")
     browser_policy = credit_policy_summary(config)["browser"]
@@ -346,6 +351,7 @@ def collect_status(
     live: bool = False,
     transport: Transport = "auto",
     provider: TinyFishWebSearchProvider | None = None,
+    update_checker: UpdateChecker | None = None,
 ) -> dict[str, Any]:
     config = _load_config()
     mcp_cfg = (config.get("mcp_servers") or {}).get("tinyfish") or {}
@@ -358,9 +364,17 @@ def collect_status(
     api_key_configured = bool(_get_env("TINYFISH_API_KEY"))
     provider = provider or TinyFishWebSearchProvider()
     health = _health_status(provider)
+    if update_checker is None:
+        from . import __version__
+
+        update_checker = UpdateChecker(
+            InstallInfo(current_version=__version__, channel="github", update_command=None),
+            home=_hermes_home(),
+        )
+    update_status = update_checker.status(config)
 
     checks: dict[str, Any] = {
-        "diagnostics_schema_version": 2,
+        "diagnostics_schema_version": 3,
         "plugin_loaded": True,
         "provider_available": provider.is_available(),
         "mcp_configured": bool(mcp_cfg.get("url") == TINYFISH_MCP_URL and mcp_cfg.get("auth") == "oauth"),
@@ -371,6 +385,8 @@ def collect_status(
         "api_key_fallback_configured": api_key_configured,
         "credit_policy": credit_policy_summary(config),
         "retired_credit_policy_keys": retired_credit_policy_keys(config),
+        "routing_context_enabled": routing_context_enabled(config),
+        "routing_context_active": bool(routing_context_enabled(config) and tinyfish_mcp_configured(config)),
         "independent_plugin_notice": INDEPENDENT_NOTICE,
         "pricing_notice": PRICING_NOTICE,
         "web_search_backend": web_cfg.get("search_backend") or web_cfg.get("backend") or "",
@@ -378,6 +394,7 @@ def collect_status(
         "browser_cloud_provider": (config.get("browser") or {}).get("cloud_provider", "")
         if isinstance(config.get("browser") or {}, dict)
         else "",
+        **update_status,
         **health,
     }
 
@@ -483,8 +500,9 @@ def cmd_status(
     args: argparse.Namespace,
     *,
     provider: TinyFishWebSearchProvider | None = None,
+    update_checker: UpdateChecker | None = None,
 ) -> int:
-    status = collect_status(live=False, provider=provider)
+    status = collect_status(live=False, provider=provider, update_checker=update_checker)
     if getattr(args, "json", False):
         print(json.dumps(status, indent=2, sort_keys=True))
     else:
@@ -496,6 +514,7 @@ def cmd_doctor(
     args: argparse.Namespace,
     *,
     provider: TinyFishWebSearchProvider | None = None,
+    update_checker: UpdateChecker | None = None,
 ) -> int:
     live = bool(getattr(args, "live", False))
     transport = str(getattr(args, "transport", "auto") or "auto")
@@ -510,6 +529,7 @@ def cmd_doctor(
         live=live,
         transport=cast(Transport, transport),
         provider=provider,
+        update_checker=update_checker,
     )
     if getattr(args, "live_paid", False):
         paid_ok = _run_live_paid_checks(status)
@@ -566,13 +586,19 @@ def tinyfish_status_command(
     raw_args: str,
     *,
     provider: TinyFishWebSearchProvider,
+    update_checker: UpdateChecker | None = None,
 ) -> str:
     """Serve the in-session ``/tinyfish-status`` command."""
 
     option = (raw_args or "").strip().lower()
     if option not in {"", "live"}:
         return "Usage: /tinyfish-status [live]"
-    status = collect_status(live=option == "live", transport="auto", provider=provider)
+    status = collect_status(
+        live=option == "live",
+        transport="auto",
+        provider=provider,
+        update_checker=update_checker,
+    )
     return "\n".join(_status_lines(status))
 
 

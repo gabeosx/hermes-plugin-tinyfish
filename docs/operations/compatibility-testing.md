@@ -24,7 +24,9 @@ isolated `HERMES_HOME` to verify:
 - entry-point plugin discovery and enablement;
 - setup with `--yes --skip-login` and no secrets;
 - non-secret `status --json` output; and
-- non-live `doctor --json` success.
+- non-live `doctor --json` success;
+- registration of `pre_llm_call` without new model-callable tools; and
+- diagnostics schema 3 routing/update fields without an update request in CI.
 
 This is an offline configuration/load check. It does not replace the live
 release gates below.
@@ -110,6 +112,33 @@ one in-flight plugin discovery attempt.
 Confirm Hermes resolves both `web_search` and `web_extract` to `tinyfish` and
 does not fall back to Firecrawl, Tavily, or another provider.
 
+## Turn Routing and Update Awareness
+
+With TinyFish MCP configured, invoke the registered `pre_llm_call` hook or run
+a conversational smoke test and verify that the marked context describes:
+
+- generic `web_search` / `web_extract` for ordinary tasks; and
+- native TinyFish MCP `search` / `fetch_content` for provider-specific filters,
+  selectors, formats, pagination, links/images, caching, and timeouts.
+
+Invoke the hook with empty history and confirm it returns one marked routing
+block. Invoke it again with that result in a prior message's `api_content` and
+confirm it does not return another routing copy. Remove the marked message to
+simulate compression and confirm the hook reinjects one copy. An
+outdated-version notice must appear at most once per process and compose even
+when routing is already present. Multiple tool calls inside one turn must not
+produce additional context copies. Disable `tinyfish.routing_context` and
+confirm new routing injection stops without unregistering either web provider.
+
+Update tests must use a disposable `HERMES_HOME` and mocked release responses
+or seeded cache data. Verify Git installs recommend
+`hermes plugins update web-tinyfish`, PyPI installs recommend the Python/pip
+upgrade command, and copied or package-manager-owned installs receive only the
+release link. A stale or missing cache must start one daemon refresh without
+delaying plugin load. Fresh, corrupt, concurrent, offline, and unwritable-cache
+cases must remain nonfatal. `NO_UPDATE_NOTIFIER=1`, CI, and unit-test
+environments must suppress the background request.
+
 ## OAuth Recovery and Discovery Gate
 
 When testing a real authorization failure, never copy or print token files.
@@ -184,6 +213,7 @@ Record a sanitized report containing:
 - fresh-install or update path;
 - MCP or REST transport for Search and Fetch;
 - resolved Search and Extract providers;
+- routing-context registration/opt-out and update-check/cache result;
 - retired-key detection/reset result;
 - Browser policy and paid-check result, if explicitly approved;
 - gateway restart and sanitized-log result; and

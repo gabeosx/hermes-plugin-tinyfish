@@ -45,6 +45,7 @@ def test_register_adds_provider_and_cli_command() -> None:
     assert ctx.providers[0].name == "tinyfish"
     assert ctx.browser_providers[0].name == "tinyfish"
     assert ctx.hooks[0][0] == "pre_tool_call"
+    assert ctx.hooks[1][0] == "pre_llm_call"
     assert ctx.tools == []
     assert ctx.cli_commands[0]["name"] == "tinyfish"
     assert callable(ctx.cli_commands[0]["setup_fn"])
@@ -67,7 +68,11 @@ def test_register_never_adds_retired_model_tools(monkeypatch) -> None:
 
 
 def test_registered_cli_handler_propagates_nonzero_exit_status(monkeypatch) -> None:
-    monkeypatch.setattr(setup_cli, "dispatch_tinyfish_cli", lambda args, provider: 7)
+    monkeypatch.setattr(
+        setup_cli,
+        "dispatch_tinyfish_cli",
+        lambda args, provider, update_checker: 7,
+    )
     ctx = FakeContext()
     hermes_plugin_tinyfish.register(ctx)
 

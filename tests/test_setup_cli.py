@@ -11,6 +11,7 @@ import pytest
 from hermes_plugin_tinyfish import setup_cli as cli
 from hermes_plugin_tinyfish.config import credit_policy_summary
 from hermes_plugin_tinyfish.health import TinyFishProviderHealth
+from hermes_plugin_tinyfish.update_check import InstallInfo, UpdateCache, UpdateChecker
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -191,7 +192,7 @@ def test_setup_live_delegates_to_authoritative_doctor(monkeypatch: pytest.Monkey
     received: list[argparse.Namespace] = []
 
     def doctor(args: argparse.Namespace, **kwargs: Any) -> int:
-        assert kwargs == {"provider": None}
+        assert kwargs == {"provider": None, "update_checker": None}
         received.append(args)
         return 1
 
@@ -241,7 +242,7 @@ def test_dispatch_routes_core_commands(
 
     def handler(args: argparse.Namespace, **kwargs: Any) -> int:
         if command in {"doctor", "status"}:
-            assert kwargs == {"provider": None}
+            assert kwargs == {"provider": None, "update_checker": None}
         else:
             assert kwargs == {}
         received.append(args)
@@ -288,7 +289,13 @@ def test_collect_status_always_reports_empty_retired_keys(
     assert status["ok"] is True
     assert status["credit_policy"] == {"browser": "deny"}
     assert status["retired_credit_policy_keys"] == []
-    assert status["diagnostics_schema_version"] == 2
+    assert status["diagnostics_schema_version"] == 3
+    assert status["routing_context_enabled"] is True
+    assert status["routing_context_active"] is True
+    assert status["update_check_enabled"] is True
+    assert status["installed_plugin_version"]
+    assert status["latest_plugin_version"] is None
+    assert status["plugin_update_available"] is None
     assert status["mcp_token_cache_note"] == "presence only; OAuth validity is not checked"
     assert status["mcp_runtime_state"] == "not_checked"
     assert config == before
@@ -313,6 +320,30 @@ def test_status_json_reports_retired_keys_without_mutating_config(
         "model_tools",
     ]
     assert config == before
+
+
+def test_status_reports_cached_update_state_without_network(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _FakeProvider()
+    _install_status_environment(monkeypatch, tmp_path, provider)
+    checker = UpdateChecker(
+        InstallInfo(
+            current_version="1.2.3",
+            channel="pypi",
+            update_command="python -m pip install --upgrade hermes-plugin-tinyfish",
+        ),
+        home=tmp_path,
+    )
+    checker._state = UpdateCache(channel="pypi", latest_version="1.3.0", checked_at=123.0)
+
+    status = cli.collect_status(provider=provider, update_checker=checker)
+
+    assert status["installed_plugin_version"] == "1.2.3"
+    assert status["update_release_channel"] == "pypi"
+    assert status["latest_plugin_version"] == "1.3.0"
+    assert status["plugin_update_available"] is True
+    assert status["update_checked_at"] == 123.0
 
 
 def test_human_status_warns_that_retired_keys_are_ignored(

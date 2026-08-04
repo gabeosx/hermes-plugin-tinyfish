@@ -43,6 +43,28 @@ tinyfish:
     ttl: 3600
 ```
 
+These values are REST fallback defaults only. They do not represent remembered
+user intent, and the plugin does not add persistent domain lists, selectors,
+or other parity controls. A user can state those requirements in ordinary
+language for the current request.
+
+When TinyFish MCP is configured, a `pre_llm_call` hook injects marked routing
+guidance when the active context does not already contain that routing version:
+
+- ordinary discovery and page reading use Hermes `web_search` and
+  `web_extract`;
+- requests needing TinyFish-specific filters, pagination, selectors, output
+  formats, link/image extraction, caching, or timeouts use the native TinyFish
+  MCP `search` or `fetch_content` tool exposed by Hermes.
+
+Hermes persists its API-bound message sidecar for prompt-cache replay while
+keeping visible conversation content clean. The hook checks only its versioned
+marker, so normal replay retains one active copy; if compression removes it,
+the next turn injects it again. The hook does not inspect request keywords,
+force a tool, or run once per tool call. Hermes remains responsible for
+interpreting plain language and choosing among the actual tool schemas. Set
+`tinyfish.routing_context: false` to prevent new guidance injections.
+
 `hermes tinyfish usage` reads Fetch operation history from TinyFish's Fetch
 usage endpoint. It does not report Agent or Browser billing.
 
@@ -117,6 +139,15 @@ reported by `hermes tinyfish status` as `retired_credit_policy_keys`.
 Reading status, loading the plugin, and updating it do not mutate user config
 or remote TinyFish state. `hermes tinyfish credits reset` is the explicit
 migration command: it removes retired keys and restores `browser: deny`.
+
+Plugin loading starts a best-effort update check in a daemon thread. The check
+uses GitHub Releases for Hermes Git installs and PyPI metadata for package
+installs, accepts stable semantic versions only, and caches the result for 24
+hours under the active `HERMES_HOME`. Hermes receives an ephemeral, one-time
+per-process notice when the installed version is older. The check never runs
+an updater, uses no credentials, and silently tolerates offline or unwritable
+environments. Set `tinyfish.update_check: false` or `NO_UPDATE_NOTIFIER=1` to
+opt out.
 
 ## References
 
