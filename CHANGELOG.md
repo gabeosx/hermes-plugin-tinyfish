@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-04
+
 ### Added
 
 - Added marked, once-per-active-context guidance so Hermes can infer when
