@@ -2,13 +2,13 @@
 
 - Date: 2026-08-04
 - Operator: Codex
-- Verdict: conditional no-go pending explicit approval of the paid Browser gate
+- Verdict: go
 - Platform: macOS 26.5 arm64
 - Local Python: 3.13.14
 - Hermes compatibility Python: 3.12.8
 - Plugin base: `1f6b46d` (`v0.2.4`) plus the
   `codex/tinyfish-routing-update-awareness` feature changes
-- Feature commit: `6d1f302` plus this report update
+- Feature commit: `6d1f302` plus release-readiness evidence updates
 - Candidate release: `v0.3.0`
 - Credentials copied, printed, or changed: none
 
@@ -81,14 +81,22 @@ and untracked file set were restored, container ownership was restored, and the
 gateway was restarted again. It returned healthy at
 `2026-08-04T18:18:18Z`, leaving the deployment in its original code state.
 
-## Release Gate Still Required
+## Paid Browser Gate
 
-The candidate has not performed the explicitly approved paid Browser
-create/close check. The live profile's Browser policy remains `deny`; release
-authorization alone was not treated as authorization to spend TinyFish Browser
-credits or temporarily change that policy.
+After explicit user approval, the candidate performed exactly one
+`hermes tinyfish doctor --live-paid --json` run. It reported
+`live_paid_ok: true`, `live_paid_browser_ok: true`, and
+`live_paid_browser_cleanup_ok: true`, confirming that the Browser session was
+created and closed successfully. The diagnostic emitted no session ID,
+connection URL, credential, or TinyFish response data.
 
-Do not merge the `release:minor` feature PR while this verdict remains no-go.
-After the Browser gate passes, update this report to record its sanitized result
-and change the verdict to go; protected automation may then prepare and publish
-`v0.3.0`.
+For the gate only, `browser.cloud_provider` changed from `firecrawl` to
+`tinyfish` and `tinyfish.credit_policy.browser` changed from its prior unset
+state to `allow`. Immediately afterward, the provider was restored to
+`firecrawl`, the policy key was removed to restore its exact prior state, and
+the original dirty plugin checkout at commit `16fa31b` was restored with the
+same modified and untracked file set. The gateway was restarted again against
+that restored state and returned healthy at `2026-08-04T18:29:22Z`.
+
+All required gates have now passed. PR #37 may be marked ready and merged;
+protected release automation may prepare and publish `v0.3.0`.
