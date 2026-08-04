@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-policy-green.svg)](SECURITY.md)
 
-TinyFish Search and Fetch providers, plus optional TinyFish Browser
-infrastructure, for
+TinyFish Search and Fetch providers with plain-language tool routing, update
+awareness, and optional TinyFish Browser infrastructure for
 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/).
 
 Hermes remains the agent: it plans, chooses tools, and controls browser
@@ -56,6 +56,20 @@ hermes tinyfish status
 hermes tinyfish doctor
 ```
 
+The plugin also performs a nonblocking update check when it loads. Git installs
+are compared with the latest stable GitHub Release; Python package installs are
+compared with the latest stable PyPI version. Results are cached for 24 hours
+at `$HERMES_HOME/cache/web-tinyfish-update.json` in the active profile. If an
+update is available, Hermes mentions it once on the first conversational turn
+where the cached or background result is available. The plugin never installs
+the update itself.
+
+The check sends only the installed plugin version in its HTTP User-Agent. It
+does not send Hermes configuration, TinyFish credentials, searches, fetched
+URLs, or conversation content. Network and cache failures are silent. Disable
+the check with `tinyfish.update_check: false` or the conventional
+`NO_UPDATE_NOTIFIER=1` environment variable.
+
 ## Safe Default Setup
 
 `hermes tinyfish setup` configures TinyFish for Hermes `web_search` and
@@ -76,6 +90,8 @@ web:
   extract_backend: tinyfish
 
 tinyfish:
+  routing_context: true
+  update_check: true
   credit_policy:
     browser: deny
 ```
@@ -133,6 +149,35 @@ For browser authorization from a headless or remote terminal:
 - Treat the MCP-only doctor as authoritative. Some Hermes versions can print
   an authentication failure while still returning shell status 0.
 
+## Automatic Tool Routing
+
+Talk to Hermes normally; you do not need to choose “the plugin” or “MCP.” When
+an active context does not already contain the current routing version, the
+plugin adds a short routing note that helps Hermes choose the narrowest tool
+surface:
+
+- “Find recent TinyFish documentation” uses Hermes `web_search`.
+- “Read this page and summarize it” uses Hermes `web_extract`.
+- “Search only these domains, in English, after this date, and return page 2”
+  uses TinyFish MCP's native `search` tool because the generic search schema
+  cannot express all of those controls.
+- “Fetch these URLs using this selector, include image links, and use this
+  cache TTL” uses TinyFish MCP's native `fetch_content` tool.
+
+Hermes keeps the visible stored user message clean but persists the exact
+API-bound message in an `api_content` sidecar for prompt-cache replay. The note
+contains a versioned marker, so the hook does not add another copy while that
+version remains in the active context. If compression removes the marked
+message, the hook adds one fresh copy. Multiple tool calls inside a turn do not
+run the hook again. Hermes still sees the real tool schemas and makes the final
+choice; the plugin does not keyword-match the prompt or force a tool.
+
+Routing guidance defaults on only when the plugin-managed TinyFish MCP server
+is configured. Set `tinyfish.routing_context: false` to disable the guidance
+without disabling the provider. This prevents new injections; a copy already
+present in the active API context may remain until that context is reset or
+compressed.
+
 ## Search and Fetch Options
 
 Optional REST fallback defaults can be configured in `config.yaml`:
@@ -153,7 +198,10 @@ tinyfish:
 ```
 
 MCP remains the preferred path when configured. These options apply only to
-REST fallback calls.
+REST fallback calls. They are fixed fallback defaults, not required settings
+for ordinary requests and not a substitute for plain-language, per-request MCP
+controls. The plugin does not add persistent include-domain, exclude-selector,
+or similar parity settings.
 
 ## Optional Browser Provider
 
@@ -211,6 +259,9 @@ hermes tinyfish doctor --live-paid
 
 - `status` is non-secret and reports ignored `0.2.x` policy keys under
   `retired_credit_policy_keys`.
+- Status also reports whether routing and update checks are enabled, whether
+  routing is active, the installed version, the cached latest version, and
+  cached update availability. Reading status never performs an update request.
 - `mcp_token_cached` reports only whether Hermes's expected cache file is
   present. It does not mean the access or refresh token is valid.
 - `/tinyfish-status` shows non-networked status inside CLI or gateway sessions;
@@ -231,6 +282,8 @@ This plugin uses public Hermes extension points:
 - `ctx.register_web_search_provider(...)`
 - `ctx.register_browser_provider(...)`
 - `ctx.register_hook("pre_tool_call", ...)` for Browser credit policy
+- `ctx.register_hook("pre_llm_call", ...)` for context-aware tool routing and
+  update notices
 - `ctx.register_cli_command(...)`
 - `ctx.register_command(...)` for `/tinyfish-status`
 - `ctx.dispatch_tool(...)` for registered TinyFish MCP calls

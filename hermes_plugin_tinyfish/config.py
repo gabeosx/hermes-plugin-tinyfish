@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+TINYFISH_MCP_URL = "https://agent.tinyfish.ai/mcp"
+
 CreditFeature = Literal["browser"]
 CreditPolicy = Literal["deny", "request", "allow"]
 
@@ -56,6 +58,16 @@ def tinyfish_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config() if config is None else config
     section = cfg.get("tinyfish") or {}
     return section if isinstance(section, dict) else {}
+
+
+def routing_context_enabled(config: dict[str, Any] | None = None) -> bool:
+    value = _bool_option(tinyfish_config(config).get("routing_context"))
+    return True if value is None else value
+
+
+def update_check_enabled(config: dict[str, Any] | None = None) -> bool:
+    value = _bool_option(tinyfish_config(config).get("update_check"))
+    return True if value is None else value
 
 
 def credit_policy(feature: CreditFeature | str, config: dict[str, Any] | None = None) -> CreditPolicy:

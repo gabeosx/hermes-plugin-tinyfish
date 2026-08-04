@@ -11,6 +11,8 @@ instead of modifying Hermes core.
 - Browser provider registration through `ctx.register_browser_provider(...)`.
 - Browser credit policy enforcement through
   `ctx.register_hook("pre_tool_call", ...)` and Hermes approval directives.
+- Ephemeral routing and maintenance context through
+  `ctx.register_hook("pre_llm_call", ...)`.
 - CLI registration through `ctx.register_cli_command(...)`.
 - In-session diagnostics through `ctx.register_command(...)`.
 - Registered MCP tool invocation through `ctx.dispatch_tool(...)`.
@@ -20,6 +22,30 @@ instead of modifying Hermes core.
 
 The plugin does not call `ctx.register_tool(...)`: Hermes is the agent, and no
 TinyFish Agent tools are model-callable through this plugin.
+
+## Turn Context
+
+Hermes invokes `pre_llm_call` once before a user turn's LLM loop. The plugin
+uses the hook to explain when generic web tools are sufficient and when native
+TinyFish MCP schemas are needed. It may also append one cached update notice.
+Hermes adds this context to the API-bound user message without changing its
+clean stored `content`. Hermes persists an `api_content` sidecar so later turns
+can replay the exact prompt-cache prefix; the sidecar can therefore remain in
+the model context even though it is absent from visible conversation text.
+
+The routing block carries a versioned marker. The hook checks only that marker
+in Hermes-provided history and injects the block when it is missing. Normal
+sidecar replay therefore keeps one copy in the active context; compression
+that removes it causes reinjection on the next turn. Multiple tool calls do not
+invoke the hook again. The plugin re-reads configuration each turn, does not
+inspect request keywords, dispatch tools from the hook, or override Hermes's
+tool choice. It is active only for the plugin-managed OAuth MCP endpoint and
+new injection can be disabled with `tinyfish.routing_context: false`.
+
+The update checker is separate from provider availability. It runs in a daemon
+thread, caches only release channel/version/timestamp data under the active
+Hermes profile, and never makes status or `is_available()` networked. It does
+not use private Hermes update APIs or execute an update command.
 
 ## MCP Discovery Compatibility Shim
 
@@ -71,6 +97,14 @@ TinyFish Browser is credit-risking and denied by default:
 tinyfish:
   credit_policy:
     browser: deny
+```
+
+Optional default-on context features:
+
+```yaml
+tinyfish:
+  routing_context: true
+  update_check: true
 ```
 
 Users may set Browser to `request` for Hermes approval on each `browser_*` tool

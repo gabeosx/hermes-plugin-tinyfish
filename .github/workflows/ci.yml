@@ -169,7 +169,34 @@ jobs:
           assert status["web_extract_backend"] == "tinyfish", status
           assert status["credit_policy"] == {"browser": "deny"}, status
           assert status["retired_credit_policy_keys"] == [], status
-          assert status["diagnostics_schema_version"] == 2, status
+          assert status["diagnostics_schema_version"] == 3, status
+          assert status["routing_context_enabled"] is True, status
+          assert status["routing_context_active"] is True, status
+          assert status["update_check_enabled"] is True, status
+          assert status["latest_plugin_version"] is None, status
           assert status["mcp_token_cache_note"] == "presence only; OAuth validity is not checked", status
           assert doctor["ok"] is True, doctor
+
+          from hermes_cli.plugins import discover_plugins, invoke_hook
+
+          discover_plugins()
+          contexts = invoke_hook("pre_llm_call", conversation_history=[])
+          assert len(contexts) == 1, contexts
+          routing = contexts[0]["context"]
+          assert "`web_search` or `web_extract`" in routing, routing
+          assert "`search` or `fetch_content`" in routing, routing
+
+          replayed = invoke_hook(
+              "pre_llm_call",
+              conversation_history=[
+                  {"role": "user", "content": "search", "api_content": routing}
+              ],
+          )
+          assert replayed == [], replayed
+
+          reinjected = invoke_hook(
+              "pre_llm_call",
+              conversation_history=[{"role": "user", "content": "compacted"}],
+          )
+          assert len(reinjected) == 1, reinjected
           PY

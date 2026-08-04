@@ -7,6 +7,23 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- Added marked, once-per-active-context guidance so Hermes can infer when
+  ordinary web requests should use generic provider tools and when
+  TinyFish-specific controls require native MCP Search or Fetch without
+  accumulating one new copy on every turn.
+- Added nonblocking, source-aware update checks with a 24-hour profile-local
+  cache, one-time conversational notices, install-appropriate update guidance,
+  opt-outs, and non-networked diagnostics.
+
+### Changed
+
+- Expanded diagnostics to schema version 3 with routing state, installed and
+  cached-latest versions, release channel, and update availability.
+- Clarified that persistent Search/Fetch settings are REST fallback defaults,
+  not required parity configuration for plain-language requests.
+
 ## [0.2.4] - 2026-07-22
 
 ### Fixed
