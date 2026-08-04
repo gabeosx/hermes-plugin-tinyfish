@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.3.1] - 2026-08-04
+
 ### Fixed
 
 - Added the required Hermes plugin enable step to the Python package install
