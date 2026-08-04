@@ -2,7 +2,7 @@
 
 - Date: 2026-08-04
 - Operator: Codex
-- Verdict: conditional no-go pending the live release gates below
+- Verdict: conditional no-go pending explicit approval of the paid Browser gate
 - Platform: macOS 26.5 arm64
 - Local Python: 3.13.14
 - Hermes compatibility Python: 3.12.8
@@ -60,24 +60,35 @@ then reported source `git`, version 0.2.4 (the intentionally unbumped feature
 version), GitHub release-channel ownership, TinyFish for Search and Extract,
 diagnostics schema 3, and passing non-live status/Doctor checks.
 
-## Release Gates Still Required
+## Live Search/Fetch and Gateway Gates
 
-The active local Hermes profile has no TinyFish MCP OAuth configuration, token
-cache, or REST API-key fallback. The repository has no Actions secret names for
-live TinyFish tests. Consequently, this run did not perform:
+The candidate temporarily replaced a fully preserved live plugin checkout in
+the existing Hermes Docker deployment; no credential file or value was read or
+copied. Candidate `hermes tinyfish doctor --live --transport mcp --json`
+reported both `live_search_ok: true` and `live_fetch_ok: true` over MCP.
+Candidate `--transport rest` reported both checks true over REST. Both runs
+kept TinyFish selected for Search and Extract and reported no provider fallback.
 
-1. current authenticated MCP-only Search and Fetch;
-2. current REST-only Search and Fetch;
-3. an explicitly approved paid Browser create/close check; or
-4. a gateway restart with sanitized replacement-process logs.
+The `hermes-gateway` service was restarted with the candidate installed. Its
+start timestamp changed from `2026-08-04T13:10:54Z` to
+`2026-08-04T18:16:11Z`, it returned healthy, and the gateway container reported
+the candidate's diagnostics schema 3 with TinyFish Search/Extract active. The
+container emitted no startup or error log lines during the gate.
 
-Historical evidence in
-[`oauth-hardening-compatibility-report.md`](oauth-hardening-compatibility-report.md)
-proves authenticated MCP Search/Fetch and a healthy gateway restart for the
-0.2.x provider implementation. It does not replace the current REST, paid
-Browser, or candidate-branch gateway gates required by the release runbook.
+The pre-test live checkout was dirty, so it was backed up before candidate
+installation. After the gate, its exact commit (`16fa31b`) and the same modified
+and untracked file set were restored, container ownership was restored, and the
+gateway was restarted again. It returned healthy at
+`2026-08-04T18:18:18Z`, leaving the deployment in its original code state.
+
+## Release Gate Still Required
+
+The candidate has not performed the explicitly approved paid Browser
+create/close check. The live profile's Browser policy remains `deny`; release
+authorization alone was not treated as authorization to spend TinyFish Browser
+credits or temporarily change that policy.
 
 Do not merge the `release:minor` feature PR while this verdict remains no-go.
-After the missing gates pass, update this report to record sanitized results
+After the Browser gate passes, update this report to record its sanitized result
 and change the verdict to go; protected automation may then prepare and publish
 `v0.3.0`.
