@@ -8,6 +8,7 @@
 - Hermes compatibility Python: 3.12.8
 - Plugin base: `1f6b46d` (`v0.2.4`) plus the
   `codex/tinyfish-routing-update-awareness` feature changes
+- Feature commit: `6d1f302` plus this report update
 - Candidate release: `v0.3.0`
 - Credentials copied, printed, or changed: none
 
@@ -44,8 +45,20 @@
 - Wheel archive integrity and installed-wheel smoke checks: passed.
 - Git diff whitespace validation and CI YAML parsing: passed.
 
-Protected GitHub CI will provide the authoritative Python 3.10, 3.11, 3.12,
-and 3.13 matrix results for the feature PR.
+Protected GitHub CI provided the authoritative Python 3.10, 3.11, 3.12,
+and 3.13 matrix results for the feature PR. PR #37 passed all four Python jobs,
+dependency review, and the Hermes 0.18.2/0.19.0 compatibility jobs.
+
+## Git Install and Update Gate
+
+A disposable Python 3.12 environment containing Hermes 0.19.0 and no TinyFish
+entry-point package installed the plugin from a local Git remote at released
+tag `v0.2.1`. Hermes reported source `git` and version 0.2.1. The remote's
+`main` branch was then advanced to feature commit `6d1f302`, and
+`hermes plugins update web-tinyfish` completed a fast-forward update. Hermes
+then reported source `git`, version 0.2.4 (the intentionally unbumped feature
+version), GitHub release-channel ownership, TinyFish for Search and Extract,
+diagnostics schema 3, and passing non-live status/Doctor checks.
 
 ## Release Gates Still Required
 
@@ -53,11 +66,10 @@ The active local Hermes profile has no TinyFish MCP OAuth configuration, token
 cache, or REST API-key fallback. The repository has no Actions secret names for
 live TinyFish tests. Consequently, this run did not perform:
 
-1. a fresh GitHub plugin install and update using the candidate branch;
-2. current authenticated MCP-only Search and Fetch;
-3. current REST-only Search and Fetch;
-4. an explicitly approved paid Browser create/close check; or
-5. a gateway restart with sanitized replacement-process logs.
+1. current authenticated MCP-only Search and Fetch;
+2. current REST-only Search and Fetch;
+3. an explicitly approved paid Browser create/close check; or
+4. a gateway restart with sanitized replacement-process logs.
 
 Historical evidence in
 [`oauth-hardening-compatibility-report.md`](oauth-hardening-compatibility-report.md)
