@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.3.2] - 2026-08-11
+
 ### Added
 
 - Added automated compatibility coverage for the Hermes 0.20.0 source release,
