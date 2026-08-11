@@ -17,9 +17,11 @@ Browser policy, and gateway loading.
 
 ## Automated Compatibility Baseline
 
-CI builds the plugin wheel, installs it with the minimum supported
-`hermes-agent==0.18.2` and current `0.19.0` release on Python 3.12, and uses an
-isolated `HERMES_HOME` to verify:
+CI builds the plugin wheel and tests it on Python 3.12 against the minimum
+packaged `hermes-agent==0.18.2`, packaged `0.19.0`, and the official Hermes
+0.20.0 source release tag. Hermes 0.20.0 is installed through its supported
+editable source path because it is not published on PyPI and rejects wheel
+builds. Each job uses an isolated `HERMES_HOME` to verify:
 
 - entry-point plugin discovery and enablement;
 - setup with `--yes --skip-login` and no secrets;

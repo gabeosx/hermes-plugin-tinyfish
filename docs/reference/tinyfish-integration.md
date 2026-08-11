@@ -53,9 +53,10 @@ guidance when the active context does not already contain that routing version:
 
 - ordinary discovery and page reading use Hermes `web_search` and
   `web_extract`;
-- requests needing TinyFish-specific filters, pagination, selectors, output
-  formats, link/image extraction, caching, or timeouts use the native TinyFish
-  MCP `search` or `fetch_content` tool exposed by Hermes.
+- requests needing TinyFish-specific filters, news/research-paper or
+  publication-year modes, pagination, selectors, conditional validators,
+  output formats, link/image extraction, caching, or timeouts use the native
+  TinyFish MCP `search` or `fetch_content` tool exposed by Hermes.
 
 Hermes persists its API-bound message sidecar for prompt-cache replay while
 keeping visible conversation content clean. The hook checks only its versioned
@@ -65,8 +66,10 @@ force a tool, or run once per tool call. Hermes remains responsible for
 interpreting plain language and choosing among the actual tool schemas. Set
 `tinyfish.routing_context: false` to prevent new guidance injections.
 
-`hermes tinyfish usage` reads Fetch operation history from TinyFish's Fetch
-usage endpoint. It does not report Agent or Browser billing.
+`hermes tinyfish usage` reads Search and Fetch operation history from their
+respective usage endpoints. Each surface reports its own success or failure,
+and the command exits nonzero if either endpoint fails. It does not report
+Agent or Browser billing.
 
 Use `hermes tinyfish doctor --live --transport mcp` to test MCP OAuth without
 REST fallback. An explicit `invalid_grant`, authorization challenge, or
@@ -110,6 +113,9 @@ Provider behavior:
   Browser policy.
 - Hermes owns page-level planning and browser tool calls.
 - TinyFish session IDs and connection URLs are not printed by diagnostics.
+- Session termination retries documented transient HTTP statuses and transport
+  failures at most three times, caps `Retry-After` waits at five seconds, and
+  treats 404 as failed cleanup rather than proof of idempotent termination.
 - `doctor --live-paid` creates and closes one Browser session and treats failed
   cleanup as a failed diagnostic.
 

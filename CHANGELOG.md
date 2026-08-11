@@ -7,6 +7,26 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- Added automated compatibility coverage for the Hermes 0.20.0 source release,
+  alongside the packaged 0.18.2 and 0.19.0 compatibility jobs.
+- Expanded `hermes tinyfish usage` to report both Search and Fetch operation
+  history, including per-surface success or failure.
+
+### Changed
+
+- Bumped the ephemeral routing context to version 2 with research-paper and
+  publication-year search modes, conditional Fetch validators, and explicit
+  guidance not to silently drop requested controls when native MCP tools are
+  unavailable.
+
+### Fixed
+
+- Made Browser session termination retry documented transient and transport
+  failures within a bounded cleanup budget, honor capped `Retry-After` delays,
+  and stop treating HTTP 404 as successful cleanup.
+
 ## [0.3.1] - 2026-08-04
 
 ### Fixed

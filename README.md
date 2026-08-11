@@ -162,8 +162,9 @@ surface:
 - “Search only these domains, in English, after this date, and return page 2”
   uses TinyFish MCP's native `search` tool because the generic search schema
   cannot express all of those controls.
-- “Fetch these URLs using this selector, include image links, and use this
-  cache TTL” uses TinyFish MCP's native `fetch_content` tool.
+- “Find research papers from these publication years” also uses native
+  `search`, while “Fetch these URLs using this selector and conditional ETag”
+  uses native `fetch_content`.
 
 Hermes keeps the visible stored user message clean but persists the exact
 API-bound message in an `api_content` sidecar for prompt-cache replay. The note
@@ -267,8 +268,9 @@ hermes tinyfish doctor --live-paid
   present. It does not mean the access or refresh token is valid.
 - `/tinyfish-status` shows non-networked status inside CLI or gateway sessions;
   `/tinyfish-status live` explicitly runs Search and Fetch checks.
-- `usage` reads TinyFish Fetch operation history; it is not Agent or Browser
-  billing data.
+- `usage` reads TinyFish Search and Fetch operation history independently and
+  reports per-surface success or failure; it is not Agent or Browser billing
+  data.
 - `doctor --live-paid` only creates and closes a TinyFish Browser session. It
   refuses under `deny`, requests approval under `request`, and never prints
   connection URLs or credentials.

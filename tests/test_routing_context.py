@@ -34,9 +34,13 @@ def test_routing_context_defaults_on_only_for_configured_tinyfish_mcp(
     first = context(user_message="ordinary search", conversation_history=[])
 
     assert first is not None
+    assert routing.ROUTING_CONTEXT_MARKER == '<tinyfish-routing-context version="2">'
     assert routing.ROUTING_CONTEXT_MARKER in first["context"]
     assert "`web_search` or `web_extract`" in first["context"]
     assert "`search` or `fetch_content`" in first["context"]
+    assert "research-paper" in first["context"]
+    assert "ETag/Last-Modified" in first["context"]
+    assert "silently dropping" in first["context"]
     assert "plain language" in first["context"]
     assert "persist per-request controls" in first["context"]
 
@@ -77,6 +81,26 @@ def test_routing_guidance_returns_after_compression_removes_marker(
 
     assert result is not None
     assert result["context"].count(routing.ROUTING_CONTEXT_MARKER) == 1
+
+
+def test_v1_marker_does_not_suppress_v2_routing_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(routing, "load_config", _mcp_config)
+    context = routing.TinyFishTurnContext(_FakeUpdateChecker())  # type: ignore[arg-type]
+
+    result = context(
+        conversation_history=[
+            {
+                "role": "user",
+                "content": "search",
+                "api_content": '<tinyfish-routing-context version="1">old guidance',
+            }
+        ]
+    )
+
+    assert result is not None
+    assert routing.ROUTING_CONTEXT_MARKER in result["context"]
 
 
 @pytest.mark.parametrize(

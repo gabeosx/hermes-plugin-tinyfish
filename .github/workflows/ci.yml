@@ -111,7 +111,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        hermes-version: ["0.18.2", "0.19.0"]
+        include:
+          - hermes-version: "0.18.2"
+            hermes-ref: ""
+          - hermes-version: "0.19.0"
+            hermes-ref: ""
+          - hermes-version: "0.20.0"
+            hermes-ref: "v2026.8.3"
 
     steps:
       - uses: actions/checkout@v7
@@ -127,11 +133,30 @@ jobs:
           python -m pip install build
           python -m build
 
-      - name: Install Hermes and built plugin
+      - name: Check out Hermes source release
+        if: matrix.hermes-ref != ''
+        uses: actions/checkout@v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ matrix.hermes-ref }}
+          path: hermes-agent-source
+
+      - name: Install packaged Hermes and built plugin
+        if: matrix.hermes-ref == ''
         run: |
           wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
           python -m pip install "hermes-agent==${{ matrix.hermes-version }}" "$wheel"
+
+      # Hermes 0.20.0 is distributed through the installer/source release,
+      # not PyPI, and intentionally rejects wheel builds. Use its documented
+      # editable development path against the immutable release tag.
+      - name: Install source Hermes and built plugin
+        if: matrix.hermes-ref != ''
+        run: |
+          wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          python -m pip install -e ./hermes-agent-source "$wheel"
 
       - name: Discover and enable plugin
         env:
@@ -183,8 +208,11 @@ jobs:
           contexts = invoke_hook("pre_llm_call", conversation_history=[])
           assert len(contexts) == 1, contexts
           routing = contexts[0]["context"]
+          assert '<tinyfish-routing-context version="2">' in routing, routing
           assert "`web_search` or `web_extract`" in routing, routing
           assert "`search` or `fetch_content`" in routing, routing
+          assert "research-paper" in routing, routing
+          assert "ETag/Last-Modified" in routing, routing
 
           replayed = invoke_hook(
               "pre_llm_call",

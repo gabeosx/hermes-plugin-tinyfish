@@ -8,12 +8,12 @@ from typing import Any
 from .config import TINYFISH_MCP_URL, load_config, routing_context_enabled
 from .update_check import UpdateChecker
 
-ROUTING_CONTEXT_MARKER = '<tinyfish-routing-context version="1">'
+ROUTING_CONTEXT_MARKER = '<tinyfish-routing-context version="2">'
 ROUTING_GUIDANCE = f"""{ROUTING_CONTEXT_MARKER}
 TinyFish tool-routing guidance:
 - For ordinary web discovery or reading a page, use Hermes `web_search` or `web_extract`; the TinyFish provider already keeps those calls MCP-first.
-- When the request needs TinyFish-specific controls that the generic schemas cannot express—domain/date/language/location/purpose/pagination filters, selectors, output formats, link or image extraction, cache TTL, or per-URL timeouts—use the native `search` or `fetch_content` tool registered by the `tinyfish` MCP server. Use the exact names Hermes exposes, commonly `mcp__tinyfish__search` and `mcp__tinyfish__fetch_content`.
-- Infer the choice from the user's plain language. Do not ask them to choose MCP versus the plugin, and do not persist per-request controls as configuration."""
+- When the request needs TinyFish-specific controls that the generic schemas cannot express—domain/date/language/location/purpose/pagination filters, news or research-paper modes, publication-year filters, selectors, output formats, link or image extraction, conditional ETag/Last-Modified validators, cache TTL, or per-URL timeouts—use the native `search` or `fetch_content` tool registered by the `tinyfish` MCP server. Use the exact names Hermes exposes, commonly `mcp__tinyfish__search` and `mcp__tinyfish__fetch_content`.
+- Infer the choice from the user's plain language. Do not ask them to choose MCP versus the plugin, and do not persist per-request controls as configuration. If a required native tool is unavailable, use the generic provider only when it can preserve the requested constraints; otherwise explain which control is unavailable rather than silently dropping it."""
 
 
 def tinyfish_mcp_configured(config: dict[str, Any]) -> bool:
