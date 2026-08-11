@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -85,7 +86,7 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     credits_set.add_argument("policy", choices=list(CREDIT_POLICIES))
     credits_sub.add_parser("reset", help="Reset Browser to deny and remove retired Agent/Profile policy keys")
 
-    usage = sub.add_parser("usage", help="Read TinyFish Fetch operation history")
+    usage = sub.add_parser("usage", help="Read TinyFish Search and Fetch operation history")
     usage.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
 
@@ -614,7 +615,7 @@ def _api_key_or_error() -> str | None:
     api_key = _get_env("TINYFISH_API_KEY")
     if not api_key:
         print(
-            "TINYFISH_API_KEY is required for TinyFish Fetch usage and Browser operations.",
+            "TINYFISH_API_KEY is required for TinyFish Search/Fetch usage and Browser operations.",
             file=sys.stderr,
         )
         return None
@@ -709,17 +710,28 @@ def cmd_credits(args: argparse.Namespace) -> int:
     return 2
 
 
+def _usage_surface(
+    reader: Callable[..., dict[str, Any]],
+    *,
+    api_key: str,
+) -> dict[str, Any]:
+    try:
+        return {"success": True, "data": reader(api_key=api_key)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
     api_key = _api_key_or_error()
     if not api_key:
         return 1
-    try:
-        payload = {
-            "success": True,
-            "surface": "fetch",
-            "data": rest_client.fetch_usage(api_key=api_key),
-        }
-    except Exception as exc:  # noqa: BLE001
-        payload = {"success": False, "surface": "fetch", "error": str(exc)}
+    surfaces = {
+        "search": _usage_surface(rest_client.search_usage, api_key=api_key),
+        "fetch": _usage_surface(rest_client.fetch_usage, api_key=api_key),
+    }
+    payload = {
+        "success": all(result["success"] for result in surfaces.values()),
+        "surfaces": surfaces,
+    }
     _print_json_or_text(payload, as_json=bool(getattr(args, "json", False)))
     return 0 if payload["success"] else 1

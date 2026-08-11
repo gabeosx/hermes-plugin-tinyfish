@@ -715,35 +715,53 @@ def test_credits_reset_removes_retired_keys_and_leaves_browser_denied(
     assert saved[-1]["tinyfish"]["credit_policy"] == {"browser": "deny"}
 
 
-def test_usage_calls_fetch_usage_and_labels_surface(
+def test_usage_calls_search_and_fetch_usage(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
 
+    def search_usage(*, api_key: str) -> dict[str, Any]:
+        calls.append(("search", api_key))
+        return {"items": [{"status": "completed"}]}
+
     def fetch_usage(*, api_key: str) -> dict[str, Any]:
-        calls.append(api_key)
+        calls.append(("fetch", api_key))
         return {"operations": [{"status": "completed"}]}
 
+    monkeypatch.setattr(cli.rest_client, "search_usage", search_usage)
     monkeypatch.setattr(cli.rest_client, "fetch_usage", fetch_usage)
 
     result = cli.cmd_usage(argparse.Namespace(json=True))
     payload = json.loads(capsys.readouterr().out)
 
     assert result == 0
-    assert calls == ["tf_secret"]
+    assert calls == [("search", "tf_secret"), ("fetch", "tf_secret")]
     assert payload == {
         "success": True,
-        "surface": "fetch",
-        "data": {"operations": [{"status": "completed"}]},
+        "surfaces": {
+            "search": {
+                "success": True,
+                "data": {"items": [{"status": "completed"}]},
+            },
+            "fetch": {
+                "success": True,
+                "data": {"operations": [{"status": "completed"}]},
+            },
+        },
     }
     assert "tf_secret" not in json.dumps(payload)
 
 
-def test_usage_failure_keeps_fetch_surface_and_returns_failure(
+def test_usage_partial_failure_returns_both_surface_results_and_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
+    monkeypatch.setattr(
+        cli.rest_client,
+        "search_usage",
+        lambda *, api_key: {"items": [{"status": "completed"}]},
+    )
 
     def fail_usage(*, api_key: str) -> dict[str, Any]:
         raise RuntimeError("usage unavailable")
@@ -755,14 +773,22 @@ def test_usage_failure_keeps_fetch_surface_and_returns_failure(
 
     assert result == 1
     assert payload["success"] is False
-    assert payload["surface"] == "fetch"
-    assert payload["error"] == "usage unavailable"
+    assert payload["surfaces"]["search"]["success"] is True
+    assert payload["surfaces"]["fetch"] == {
+        "success": False,
+        "error": "usage unavailable",
+    }
 
 
-def test_usage_without_api_key_fails_before_calling_fetch_usage(
+def test_usage_without_api_key_fails_before_calling_usage_endpoints(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "")
+    monkeypatch.setattr(
+        cli.rest_client,
+        "search_usage",
+        lambda **kwargs: pytest.fail("Search usage must not be called"),
+    )
     monkeypatch.setattr(
         cli.rest_client,
         "fetch_usage",
