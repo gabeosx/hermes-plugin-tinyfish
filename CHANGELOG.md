@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.3.3] - 2026-08-12
+
 ### Fixed
 
 - Replaced the unreadable raw dictionary output from `hermes tinyfish usage`
