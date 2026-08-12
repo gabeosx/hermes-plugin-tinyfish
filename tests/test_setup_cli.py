@@ -753,6 +753,103 @@ def test_usage_calls_search_and_fetch_usage(
     assert "tf_secret" not in json.dumps(payload)
 
 
+def test_usage_text_output_formats_operation_history_for_people(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
+    monkeypatch.setattr(
+        cli.rest_client,
+        "search_usage",
+        lambda *, api_key: {
+            "items": [
+                {
+                    "id": "search-1",
+                    "query": "Hermes Agent",
+                    "status": "completed",
+                    "results_count": 10,
+                    "latency_ms": 125,
+                    "created_at": "2026-08-12T20:00:00Z",
+                }
+            ],
+            "total": 3,
+            "limit": 1,
+            "page": 1,
+            "total_pages": 3,
+            "has_more": True,
+        },
+    )
+    monkeypatch.setattr(
+        cli.rest_client,
+        "fetch_usage",
+        lambda *, api_key: {
+            "operations": [
+                {
+                    "url": "https://example.com",
+                    "status": "failed",
+                    "error": "timeout",
+                    "created_at": "2026-08-12T20:01:00Z",
+                }
+            ],
+            "total": 1,
+            "limit": 100,
+            "page": 1,
+            "total_pages": 1,
+            "has_more": False,
+        },
+    )
+
+    result = cli.cmd_usage(argparse.Namespace(json=False))
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert (
+        output
+        == """TinyFish usage
+
+Search
+  1 shown / 3 total | page 1 of 3 | limit 1 | more: yes
+
+  Operation 1
+    Created at: 2026-08-12T20:00:00Z
+    Status: completed
+    Query: Hermes Agent
+    Results count: 10
+    Latency (ms): 125
+    ID: search-1
+
+Fetch
+  1 shown / 1 total | page 1 of 1 | limit 100 | more: no
+
+  Operation 1
+    Created at: 2026-08-12T20:01:00Z
+    Status: failed
+    URL: https://example.com
+    Error: timeout
+"""
+    )
+    assert "{'" not in output
+    assert "tf_secret" not in output
+
+
+def test_usage_text_output_keeps_partial_failure_readable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
+    monkeypatch.setattr(cli.rest_client, "search_usage", lambda *, api_key: {"items": []})
+
+    def fail_usage(*, api_key: str) -> dict[str, Any]:
+        raise RuntimeError("usage unavailable")
+
+    monkeypatch.setattr(cli.rest_client, "fetch_usage", fail_usage)
+
+    result = cli.cmd_usage(argparse.Namespace(json=False))
+    output = capsys.readouterr().out
+
+    assert result == 1
+    assert "Search\n  0 operations\n  No operations found on this page." in output
+    assert "Fetch\n  Error: usage unavailable" in output
+
+
 def test_usage_partial_failure_returns_both_surface_results_and_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -269,8 +269,9 @@ hermes tinyfish doctor --live-paid
 - `/tinyfish-status` shows non-networked status inside CLI or gateway sessions;
   `/tinyfish-status live` explicitly runs Search and Fetch checks.
 - `usage` reads TinyFish Search and Fetch operation history independently and
-  reports per-surface success or failure; it is not Agent or Browser billing
-  data.
+  prints a labeled, paginated history for people. Use `usage --json` for the raw
+  machine-readable response. It reports per-surface success or failure and is
+  not Agent or Browser billing data.
 - `doctor --live-paid` only creates and closes a TinyFish Browser session. It
   refuses under `deny`, requests approval under `request`, and never prints
   connection URLs or credentials.

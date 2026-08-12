@@ -603,14 +603,6 @@ def tinyfish_status_command(
     return "\n".join(_status_lines(status))
 
 
-def _print_json_or_text(payload: dict[str, Any], *, as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        for key, value in payload.items():
-            print(f"{key}: {value}")
-
-
 def _api_key_or_error() -> str | None:
     api_key = _get_env("TINYFISH_API_KEY")
     if not api_key:
@@ -721,6 +713,125 @@ def _usage_surface(
         return {"success": False, "error": str(exc)}
 
 
+_USAGE_FIELD_ORDER = (
+    "created_at",
+    "status",
+    "query",
+    "url",
+    "final_url",
+    "title",
+    "description",
+    "domain_type",
+    "location",
+    "language",
+    "author",
+    "published_date",
+    "format",
+    "results_count",
+    "total_results",
+    "text_length",
+    "links_count",
+    "image_links_count",
+    "latency_ms",
+    "request_origin",
+    "id",
+    "request_id",
+    "error",
+)
+
+_USAGE_FIELD_LABELS = {
+    "id": "ID",
+    "url": "URL",
+    "final_url": "Final URL",
+    "latency_ms": "Latency (ms)",
+    "request_id": "Request ID",
+}
+
+
+def _usage_field_label(key: str) -> str:
+    return _USAGE_FIELD_LABELS.get(key, key.replace("_", " ").capitalize())
+
+
+def _usage_value_lines(value: Any) -> list[str]:
+    if value is None:
+        return ["-"]
+    if isinstance(value, bool):
+        return ["yes" if value else "no"]
+    if isinstance(value, list) and all(
+        item is None or isinstance(item, (str, int, float, bool)) for item in value
+    ):
+        return [", ".join(str(item) for item in value) if value else "-"]
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False).splitlines()
+    return [str(value)]
+
+
+def _usage_items(data: dict[str, Any]) -> list[Any]:
+    for key in ("items", "operations"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _usage_summary(data: dict[str, Any], *, shown: int) -> str:
+    noun = "operation" if shown == 1 else "operations"
+    parts = [f"{shown} {noun}"]
+    total = data.get("total")
+    if isinstance(total, int) and not isinstance(total, bool):
+        parts[0] = f"{shown} shown / {total} total"
+    page = data.get("page")
+    total_pages = data.get("total_pages")
+    if isinstance(page, int) and isinstance(total_pages, int):
+        parts.append(f"page {page} of {total_pages}")
+    limit = data.get("limit")
+    if isinstance(limit, int) and not isinstance(limit, bool):
+        parts.append(f"limit {limit}")
+    if isinstance(data.get("has_more"), bool):
+        parts.append(f"more: {'yes' if data['has_more'] else 'no'}")
+    return " | ".join(parts)
+
+
+def _usage_text_lines(payload: dict[str, Any]) -> list[str]:
+    lines = ["TinyFish usage"]
+    surfaces = payload.get("surfaces")
+    if not isinstance(surfaces, dict):
+        return [*lines, "  Invalid usage response."]
+
+    for surface_name in ("search", "fetch"):
+        lines.extend(("", surface_name.capitalize()))
+        result = surfaces.get(surface_name)
+        if not isinstance(result, dict):
+            lines.append("  No response.")
+            continue
+        if not result.get("success"):
+            lines.append(f"  Error: {result.get('error') or 'Unknown error'}")
+            continue
+
+        data = result.get("data")
+        if not isinstance(data, dict):
+            lines.append("  Invalid usage response.")
+            continue
+        items = _usage_items(data)
+        lines.append(f"  {_usage_summary(data, shown=len(items))}")
+        if not items:
+            lines.append("  No operations found on this page.")
+            continue
+
+        for index, item in enumerate(items, start=1):
+            lines.extend(("", f"  Operation {index}"))
+            if not isinstance(item, dict):
+                lines.append(f"    Value: {_usage_value_lines(item)[0]}")
+                continue
+            ordered_keys = [key for key in _USAGE_FIELD_ORDER if key in item]
+            ordered_keys.extend(sorted(str(key) for key in item if key not in ordered_keys))
+            for key in ordered_keys:
+                value_lines = _usage_value_lines(item[key])
+                lines.append(f"    {_usage_field_label(key)}: {value_lines[0]}")
+                lines.extend(f"      {line}" for line in value_lines[1:])
+    return lines
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
     api_key = _api_key_or_error()
     if not api_key:
@@ -733,5 +844,8 @@ def cmd_usage(args: argparse.Namespace) -> int:
         "success": all(result["success"] for result in surfaces.values()),
         "surfaces": surfaces,
     }
-    _print_json_or_text(payload, as_json=bool(getattr(args, "json", False)))
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print("\n".join(_usage_text_lines(payload)))
     return 0 if payload["success"] else 1

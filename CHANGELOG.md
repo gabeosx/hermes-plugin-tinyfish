@@ -7,6 +7,12 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Fixed
+
+- Replaced the unreadable raw dictionary output from `hermes tinyfish usage`
+  with labeled Search and Fetch histories, pagination summaries, and clear
+  partial-failure reporting while preserving `--json` for automation.
+
 ## [0.3.2] - 2026-08-11
 
 ### Added
