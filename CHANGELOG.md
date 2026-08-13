@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.3.4] - 2026-08-13
+
 ### Fixed
 
 - Replaced `hermes tinyfish usage` request-history output with the actual
