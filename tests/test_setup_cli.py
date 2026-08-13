@@ -715,86 +715,55 @@ def test_credits_reset_removes_retired_keys_and_leaves_browser_denied(
     assert saved[-1]["tinyfish"]["credit_policy"] == {"browser": "deny"}
 
 
-def test_usage_calls_search_and_fetch_usage(
+def test_usage_calls_wallet_and_returns_machine_readable_billing_data(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    calls: list[tuple[str, str]] = []
+    calls: list[str] = []
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
 
-    def search_usage(*, api_key: str) -> dict[str, Any]:
-        calls.append(("search", api_key))
-        return {"items": [{"status": "completed"}]}
+    def wallet(*, api_key: str) -> dict[str, Any]:
+        calls.append(api_key)
+        return {"available_balance": "21.44", "currency": "USD"}
 
-    def fetch_usage(*, api_key: str) -> dict[str, Any]:
-        calls.append(("fetch", api_key))
-        return {"operations": [{"status": "completed"}]}
-
-    monkeypatch.setattr(cli.rest_client, "search_usage", search_usage)
-    monkeypatch.setattr(cli.rest_client, "fetch_usage", fetch_usage)
+    monkeypatch.setattr(cli.rest_client, "wallet", wallet)
 
     result = cli.cmd_usage(argparse.Namespace(json=True))
     payload = json.loads(capsys.readouterr().out)
 
     assert result == 0
-    assert calls == [("search", "tf_secret"), ("fetch", "tf_secret")]
+    assert calls == ["tf_secret"]
     assert payload == {
         "success": True,
-        "surfaces": {
-            "search": {
-                "success": True,
-                "data": {"items": [{"status": "completed"}]},
-            },
-            "fetch": {
-                "success": True,
-                "data": {"operations": [{"status": "completed"}]},
-            },
-        },
+        "wallet_available": True,
+        "wallet": {"available_balance": "21.44", "currency": "USD"},
     }
     assert "tf_secret" not in json.dumps(payload)
 
 
-def test_usage_text_output_formats_operation_history_for_people(
+def test_usage_text_output_formats_wallet_for_people(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
     monkeypatch.setattr(
         cli.rest_client,
-        "search_usage",
+        "wallet",
         lambda *, api_key: {
-            "items": [
-                {
-                    "id": "search-1",
-                    "query": "Hermes Agent",
-                    "status": "completed",
-                    "results_count": 10,
-                    "latency_ms": 125,
-                    "created_at": "2026-08-12T20:00:00Z",
-                }
-            ],
-            "total": 3,
-            "limit": 1,
-            "page": 1,
-            "total_pages": 3,
-            "has_more": True,
-        },
-    )
-    monkeypatch.setattr(
-        cli.rest_client,
-        "fetch_usage",
-        lambda *, api_key: {
-            "operations": [
-                {
-                    "url": "https://example.com",
-                    "status": "failed",
-                    "error": "timeout",
-                    "created_at": "2026-08-12T20:01:00Z",
-                }
-            ],
-            "total": 1,
-            "limit": 100,
-            "page": 1,
-            "total_pages": 1,
-            "has_more": False,
+            "available_balance": "21.44",
+            "currency": "USD",
+            "as_of": "2026-08-13T12:00:00Z",
+            "auto_reload": {"state": "on", "threshold": "10.00", "recharge_to": "50.00"},
+            "pending_top_up": {"amount": "50.00", "started_at": "2026-08-13T11:59:00Z"},
+            "rates": {
+                "meters": [
+                    {
+                        "product_id": "prod_agent",
+                        "label": "Agent steps",
+                        "unit_amount": "0.016000",
+                        "currency": "USD",
+                        "per": "step",
+                    }
+                ]
+            },
         },
     )
 
@@ -805,92 +774,89 @@ def test_usage_text_output_formats_operation_history_for_people(
     assert (
         output
         == """TinyFish usage
-
-Search
-  1 shown / 3 total | page 1 of 3 | limit 1 | more: yes
-
-  Operation 1
-    Created at: 2026-08-12T20:00:00Z
-    Status: completed
-    Query: Hermes Agent
-    Results count: 10
-    Latency (ms): 125
-    ID: search-1
-
-Fetch
-  1 shown / 1 total | page 1 of 1 | limit 100 | more: no
-
-  Operation 1
-    Created at: 2026-08-12T20:01:00Z
-    Status: failed
-    URL: https://example.com
-    Error: timeout
+  Available balance: $21.44 USD
+  As of: 2026-08-13T12:00:00Z
+  Auto-reload: on (at $10.00 USD, recharge to $50.00 USD)
+  Pending top-up: $50.00 USD since 2026-08-13T11:59:00Z
+  Rates:
+    Agent steps: $0.016000 USD per step
+  Historical spend: not provided by TinyFish's documented APIs
 """
     )
-    assert "{'" not in output
     assert "tf_secret" not in output
+    assert "query" not in output.lower()
+    assert "url" not in output.lower()
 
 
-def test_usage_text_output_keeps_partial_failure_readable(
+def test_usage_wallet_not_found_explains_legacy_billing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
-    monkeypatch.setattr(cli.rest_client, "search_usage", lambda *, api_key: {"items": []})
 
-    def fail_usage(*, api_key: str) -> dict[str, Any]:
-        raise RuntimeError("usage unavailable")
+    def wallet_not_found(*, api_key: str) -> dict[str, Any]:
+        raise cli.rest_client.TinyFishWalletNotFound("wallet not found")
 
-    monkeypatch.setattr(cli.rest_client, "fetch_usage", fail_usage)
+    monkeypatch.setattr(cli.rest_client, "wallet", wallet_not_found)
 
     result = cli.cmd_usage(argparse.Namespace(json=False))
     output = capsys.readouterr().out
 
-    assert result == 1
-    assert "Search\n  0 operations\n  No operations found on this page." in output
-    assert "Fetch\n  Error: usage unavailable" in output
+    assert result == 0
+    assert "Wallet balance unavailable" in output
+    assert "legacy billing or does not have a Metronome wallet" in output
+    assert "Historical spend is not provided" in output
+    assert cli.TINYFISH_BILLING_URL in output
 
 
-def test_usage_partial_failure_returns_both_surface_results_and_failure(
+def test_usage_wallet_not_found_is_machine_readable(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
-    monkeypatch.setattr(
-        cli.rest_client,
-        "search_usage",
-        lambda *, api_key: {"items": [{"status": "completed"}]},
-    )
 
-    def fail_usage(*, api_key: str) -> dict[str, Any]:
-        raise RuntimeError("usage unavailable")
+    def wallet_not_found(*, api_key: str) -> dict[str, Any]:
+        raise cli.rest_client.TinyFishWalletNotFound("wallet not found")
 
-    monkeypatch.setattr(cli.rest_client, "fetch_usage", fail_usage)
+    monkeypatch.setattr(cli.rest_client, "wallet", wallet_not_found)
+
+    result = cli.cmd_usage(argparse.Namespace(json=True))
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload == {
+        "success": True,
+        "wallet_available": False,
+        "reason": "legacy_billing_or_no_metronome_customer",
+        "message": "This account uses legacy billing or does not have a Metronome wallet yet.",
+        "billing_url": cli.TINYFISH_BILLING_URL,
+    }
+
+
+def test_usage_transport_failure_is_reported_without_history(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_get_env", lambda name: "tf_secret")
+
+    def fail_wallet(*, api_key: str) -> dict[str, Any]:
+        raise cli.rest_client.TinyFishRestError("Could not reach TinyFish Wallet")
+
+    monkeypatch.setattr(cli.rest_client, "wallet", fail_wallet)
 
     result = cli.cmd_usage(argparse.Namespace(json=True))
     payload = json.loads(capsys.readouterr().out)
 
     assert result == 1
-    assert payload["success"] is False
-    assert payload["surfaces"]["search"]["success"] is True
-    assert payload["surfaces"]["fetch"] == {
+    assert payload == {
         "success": False,
-        "error": "usage unavailable",
+        "wallet_available": None,
+        "error": "Could not reach TinyFish Wallet",
     }
 
 
-def test_usage_without_api_key_fails_before_calling_usage_endpoints(
+def test_usage_without_api_key_fails_before_calling_wallet(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "_get_env", lambda name: "")
-    monkeypatch.setattr(
-        cli.rest_client,
-        "search_usage",
-        lambda **kwargs: pytest.fail("Search usage must not be called"),
-    )
-    monkeypatch.setattr(
-        cli.rest_client,
-        "fetch_usage",
-        lambda **kwargs: pytest.fail("Fetch usage must not be called"),
-    )
+    monkeypatch.setattr(cli.rest_client, "wallet", lambda **kwargs: pytest.fail("Wallet must not be called"))
 
     result = cli.cmd_usage(argparse.Namespace(json=True))
     captured = capsys.readouterr()

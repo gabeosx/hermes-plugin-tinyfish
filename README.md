@@ -268,10 +268,12 @@ hermes tinyfish doctor --live-paid
   present. It does not mean the access or refresh token is valid.
 - `/tinyfish-status` shows non-networked status inside CLI or gateway sessions;
   `/tinyfish-status live` explicitly runs Search and Fetch checks.
-- `usage` reads TinyFish Search and Fetch operation history independently and
-  prints a labeled, paginated history for people. Use `usage --json` for the raw
-  machine-readable response. It reports per-surface success or failure and is
-  not Agent or Browser billing data.
+- `usage` reads TinyFish's wallet API and reports the available balance,
+  auto-reload state, pending top-ups, and per-product billing rates. TinyFish
+  does not expose historical aggregate spend through its documented APIs. For
+  legacy-billing accounts without a Metronome wallet, the command explains why
+  balance data is unavailable and links to the billing dashboard. Use
+  `usage --json` for machine-readable output; request history is never dumped.
 - `doctor --live-paid` only creates and closes a TinyFish Browser session. It
   refuses under `deny`, requests approval under `request`, and never prints
   connection URLs or credentials.

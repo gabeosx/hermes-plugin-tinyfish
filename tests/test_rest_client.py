@@ -183,16 +183,55 @@ def test_search_usage_uses_documented_search_endpoint(monkeypatch: pytest.Monkey
     }
 
 
-def test_usage_is_a_compatibility_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wallet_uses_documented_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_fetch_usage(*, api_key: str, timeout: float) -> dict[str, Any]:
+    def fake_get(url: str, **kwargs: Any) -> httpx.Response:
+        captured.update(url=url, **kwargs)
+        return _response("GET", url, payload={"available_balance": "12.34", "currency": "USD"})
+
+    monkeypatch.setattr(rest_client.httpx, "get", fake_get)
+
+    result = rest_client.wallet(api_key="tf_test", timeout=13.0)
+
+    assert result == {"available_balance": "12.34", "currency": "USD"}
+    assert captured == {
+        "url": "https://agent.tinyfish.ai/v1/wallet",
+        "headers": {"X-API-Key": "tf_test", "Accept": "application/json"},
+        "timeout": 13.0,
+    }
+
+
+def test_wallet_reports_documented_not_found_account_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_get(url: str, **kwargs: Any) -> httpx.Response:
+        return _response(
+            "GET",
+            url,
+            status=404,
+            payload={"error": {"code": "NOT_FOUND", "message": "Wallet not found"}},
+        )
+
+    monkeypatch.setattr(rest_client.httpx, "get", fake_get)
+
+    with pytest.raises(
+        rest_client.TinyFishWalletNotFound,
+        match="legacy billing or no Metronome customer yet",
+    ):
+        rest_client.wallet(api_key="tf_test")
+
+
+def test_usage_is_a_wallet_compatibility_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_wallet(*, api_key: str, timeout: float) -> dict[str, Any]:
         captured.update(api_key=api_key, timeout=timeout)
-        return {"operations": []}
+        return {"available_balance": "12.34"}
 
-    monkeypatch.setattr(rest_client, "fetch_usage", fake_fetch_usage)
+    monkeypatch.setattr(rest_client, "wallet", fake_wallet)
 
-    assert rest_client.usage(api_key="tf_test", timeout=14.0) == {"operations": []}
+    assert rest_client.usage(api_key="tf_test", timeout=14.0) == {"available_balance": "12.34"}
     assert captured == {"api_key": "tf_test", "timeout": 14.0}
 
 
@@ -211,6 +250,7 @@ RestCall = Callable[[], dict[str, Any]]
         ),
         ("get", lambda: rest_client.search_usage(api_key="tf_test"), "TinyFish Search usage"),
         ("get", lambda: rest_client.fetch_usage(api_key="tf_test"), "TinyFish Fetch usage"),
+        ("get", lambda: rest_client.wallet(api_key="tf_test"), "TinyFish Wallet"),
     ],
 )
 @pytest.mark.parametrize("status", [402, 500])
@@ -245,6 +285,7 @@ def test_rest_methods_report_http_failures(
         ),
         ("get", lambda: rest_client.search_usage(api_key="tf_test"), "TinyFish Search usage"),
         ("get", lambda: rest_client.fetch_usage(api_key="tf_test"), "TinyFish Fetch usage"),
+        ("get", lambda: rest_client.wallet(api_key="tf_test"), "TinyFish Wallet"),
     ],
 )
 def test_rest_methods_report_transport_failures(
@@ -274,6 +315,7 @@ def test_rest_methods_report_transport_failures(
         ),
         ("get", lambda: rest_client.search_usage(api_key="tf_test"), "TinyFish Search usage"),
         ("get", lambda: rest_client.fetch_usage(api_key="tf_test"), "TinyFish Fetch usage"),
+        ("get", lambda: rest_client.wallet(api_key="tf_test"), "TinyFish Wallet"),
     ],
 )
 def test_rest_methods_report_invalid_json(

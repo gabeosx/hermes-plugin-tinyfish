@@ -66,10 +66,13 @@ force a tool, or run once per tool call. Hermes remains responsible for
 interpreting plain language and choosing among the actual tool schemas. Set
 `tinyfish.routing_context: false` to prevent new guidance injections.
 
-`hermes tinyfish usage` reads Search and Fetch operation history from their
-respective usage endpoints. Each surface reports its own success or failure,
-and the command exits nonzero if either endpoint fails. It does not report
-Agent or Browser billing.
+`hermes tinyfish usage` reads the authenticated TinyFish wallet endpoint. It
+reports available balance, auto-reload state, pending top-ups, and live
+per-product contract rates without reading or printing request history.
+TinyFish does not document a historical aggregate-spend endpoint. Accounts on
+legacy billing, or without a Metronome customer record, receive a documented
+wallet-unavailable result and a billing-dashboard link instead of an error or
+history dump.
 
 Use `hermes tinyfish doctor --live --transport mcp` to test MCP OAuth without
 REST fallback. An explicit `invalid_grant`, authorization challenge, or
