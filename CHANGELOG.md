@@ -7,6 +7,14 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Fixed
+
+- Replaced `hermes tinyfish usage` request-history output with the actual
+  TinyFish wallet balance, auto-reload, pending top-up, and billing-rate API.
+  Legacy-billing accounts now receive a clear explanation instead of request
+  history, and the command states that no documented historical-spend API is
+  available.
+
 ## [0.3.3] - 2026-08-12
 
 ### Fixed

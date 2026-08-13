@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,6 +34,7 @@ from .routing_context import tinyfish_mcp_configured
 from .update_check import InstallInfo, UpdateChecker
 
 MCP_LOGIN_COMMAND = ("hermes", "mcp", "login", "tinyfish")
+TINYFISH_BILLING_URL = "https://agent.tinyfish.ai/api-keys"
 
 
 def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
@@ -86,7 +86,7 @@ def setup_tinyfish_cli(parser: argparse.ArgumentParser) -> None:
     credits_set.add_argument("policy", choices=list(CREDIT_POLICIES))
     credits_sub.add_parser("reset", help="Reset Browser to deny and remove retired Agent/Profile policy keys")
 
-    usage = sub.add_parser("usage", help="Read TinyFish Search and Fetch operation history")
+    usage = sub.add_parser("usage", help="Read TinyFish wallet balance and billing rates")
     usage.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 
 
@@ -702,133 +702,64 @@ def cmd_credits(args: argparse.Namespace) -> int:
     return 2
 
 
-def _usage_surface(
-    reader: Callable[..., dict[str, Any]],
-    *,
-    api_key: str,
-) -> dict[str, Any]:
-    try:
-        return {"success": True, "data": reader(api_key=api_key)}
-    except Exception as exc:  # noqa: BLE001
-        return {"success": False, "error": str(exc)}
+def _wallet_amount(value: Any, currency: Any) -> str:
+    amount = str(value) if value is not None else "unavailable"
+    code = str(currency or "").strip()
+    if amount == "unavailable":
+        return amount
+    if code == "USD":
+        return f"${amount} USD"
+    return f"{amount} {code}".rstrip()
 
 
-_USAGE_FIELD_ORDER = (
-    "created_at",
-    "status",
-    "query",
-    "url",
-    "final_url",
-    "title",
-    "description",
-    "domain_type",
-    "location",
-    "language",
-    "author",
-    "published_date",
-    "format",
-    "results_count",
-    "total_results",
-    "text_length",
-    "links_count",
-    "image_links_count",
-    "latency_ms",
-    "request_origin",
-    "id",
-    "request_id",
-    "error",
-)
+def _wallet_text_lines(wallet: dict[str, Any]) -> list[str]:
+    currency = wallet.get("currency")
+    lines = [
+        "TinyFish usage",
+        f"  Available balance: {_wallet_amount(wallet.get('available_balance'), currency)}",
+        f"  As of: {wallet.get('as_of') or 'unavailable'}",
+    ]
 
-_USAGE_FIELD_LABELS = {
-    "id": "ID",
-    "url": "URL",
-    "final_url": "Final URL",
-    "latency_ms": "Latency (ms)",
-    "request_id": "Request ID",
-}
+    auto_reload = wallet.get("auto_reload")
+    if auto_reload is None:
+        lines.append("  Auto-reload: unavailable")
+    elif isinstance(auto_reload, dict):
+        state = str(auto_reload.get("state") or "unknown").replace("_", " ")
+        if state == "unconfigured":
+            lines.append("  Auto-reload: not configured")
+        else:
+            threshold = _wallet_amount(auto_reload.get("threshold"), currency)
+            recharge_to = _wallet_amount(auto_reload.get("recharge_to"), currency)
+            lines.append(f"  Auto-reload: {state} (at {threshold}, recharge to {recharge_to})")
+    else:
+        lines.append("  Auto-reload: invalid response")
 
+    pending = wallet.get("pending_top_up")
+    if pending is None:
+        lines.append("  Pending top-up: none")
+    elif isinstance(pending, dict):
+        amount = _wallet_amount(pending.get("amount"), currency)
+        lines.append(f"  Pending top-up: {amount} since {pending.get('started_at') or 'unknown'}")
+    else:
+        lines.append("  Pending top-up: invalid response")
 
-def _usage_field_label(key: str) -> str:
-    return _USAGE_FIELD_LABELS.get(key, key.replace("_", " ").capitalize())
-
-
-def _usage_value_lines(value: Any) -> list[str]:
-    if value is None:
-        return ["-"]
-    if isinstance(value, bool):
-        return ["yes" if value else "no"]
-    if isinstance(value, list) and all(
-        item is None or isinstance(item, (str, int, float, bool)) for item in value
-    ):
-        return [", ".join(str(item) for item in value) if value else "-"]
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False).splitlines()
-    return [str(value)]
-
-
-def _usage_items(data: dict[str, Any]) -> list[Any]:
-    for key in ("items", "operations"):
-        value = data.get(key)
-        if isinstance(value, list):
-            return value
-    return []
-
-
-def _usage_summary(data: dict[str, Any], *, shown: int) -> str:
-    noun = "operation" if shown == 1 else "operations"
-    parts = [f"{shown} {noun}"]
-    total = data.get("total")
-    if isinstance(total, int) and not isinstance(total, bool):
-        parts[0] = f"{shown} shown / {total} total"
-    page = data.get("page")
-    total_pages = data.get("total_pages")
-    if isinstance(page, int) and isinstance(total_pages, int):
-        parts.append(f"page {page} of {total_pages}")
-    limit = data.get("limit")
-    if isinstance(limit, int) and not isinstance(limit, bool):
-        parts.append(f"limit {limit}")
-    if isinstance(data.get("has_more"), bool):
-        parts.append(f"more: {'yes' if data['has_more'] else 'no'}")
-    return " | ".join(parts)
-
-
-def _usage_text_lines(payload: dict[str, Any]) -> list[str]:
-    lines = ["TinyFish usage"]
-    surfaces = payload.get("surfaces")
-    if not isinstance(surfaces, dict):
-        return [*lines, "  Invalid usage response."]
-
-    for surface_name in ("search", "fetch"):
-        lines.extend(("", surface_name.capitalize()))
-        result = surfaces.get(surface_name)
-        if not isinstance(result, dict):
-            lines.append("  No response.")
-            continue
-        if not result.get("success"):
-            lines.append(f"  Error: {result.get('error') or 'Unknown error'}")
-            continue
-
-        data = result.get("data")
-        if not isinstance(data, dict):
-            lines.append("  Invalid usage response.")
-            continue
-        items = _usage_items(data)
-        lines.append(f"  {_usage_summary(data, shown=len(items))}")
-        if not items:
-            lines.append("  No operations found on this page.")
-            continue
-
-        for index, item in enumerate(items, start=1):
-            lines.extend(("", f"  Operation {index}"))
-            if not isinstance(item, dict):
-                lines.append(f"    Value: {_usage_value_lines(item)[0]}")
+    rates = wallet.get("rates")
+    meters = rates.get("meters") if isinstance(rates, dict) else None
+    if isinstance(meters, list) and meters:
+        lines.append("  Rates:")
+        for meter in meters:
+            if not isinstance(meter, dict):
                 continue
-            ordered_keys = [key for key in _USAGE_FIELD_ORDER if key in item]
-            ordered_keys.extend(sorted(str(key) for key in item if key not in ordered_keys))
-            for key in ordered_keys:
-                value_lines = _usage_value_lines(item[key])
-                lines.append(f"    {_usage_field_label(key)}: {value_lines[0]}")
-                lines.extend(f"      {line}" for line in value_lines[1:])
+            label = meter.get("label") or meter.get("product_id") or "Unnamed meter"
+            amount = _wallet_amount(meter.get("unit_amount"), meter.get("currency"))
+            per = f" per {meter['per']}" if meter.get("per") else ""
+            lines.append(f"    {label}: {amount}{per}")
+    elif rates is None:
+        lines.append("  Rates: unavailable")
+    else:
+        lines.append("  Rates: none")
+
+    lines.append("  Historical spend: not provided by TinyFish's documented APIs")
     return lines
 
 
@@ -836,16 +767,39 @@ def cmd_usage(args: argparse.Namespace) -> int:
     api_key = _api_key_or_error()
     if not api_key:
         return 1
-    surfaces = {
-        "search": _usage_surface(rest_client.search_usage, api_key=api_key),
-        "fetch": _usage_surface(rest_client.fetch_usage, api_key=api_key),
-    }
-    payload = {
-        "success": all(result["success"] for result in surfaces.values()),
-        "surfaces": surfaces,
-    }
+    try:
+        wallet = rest_client.wallet(api_key=api_key)
+    except rest_client.TinyFishWalletNotFound:
+        payload = {
+            "success": True,
+            "wallet_available": False,
+            "reason": "legacy_billing_or_no_metronome_customer",
+            "message": "This account uses legacy billing or does not have a Metronome wallet yet.",
+            "billing_url": TINYFISH_BILLING_URL,
+        }
+        text_lines = [
+            "TinyFish usage",
+            "  Wallet balance unavailable.",
+            f"  {payload['message']}",
+            "  Historical spend is not provided by TinyFish's documented APIs.",
+            f"  Billing: {TINYFISH_BILLING_URL}",
+        ]
+    except Exception as exc:  # noqa: BLE001
+        payload = {"success": False, "wallet_available": None, "error": str(exc)}
+        text_lines = ["TinyFish usage", f"  Error: {exc}"]
+    else:
+        if not isinstance(wallet, dict):
+            payload = {
+                "success": False,
+                "wallet_available": None,
+                "error": "TinyFish Wallet returned an invalid response",
+            }
+            text_lines = ["TinyFish usage", f"  Error: {payload['error']}"]
+        else:
+            payload = {"success": True, "wallet_available": True, "wallet": wallet}
+            text_lines = _wallet_text_lines(wallet)
     if bool(getattr(args, "json", False)):
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print("\n".join(_usage_text_lines(payload)))
+        print("\n".join(text_lines))
     return 0 if payload["success"] else 1
