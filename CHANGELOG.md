@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-29
+
 ### Added
 
 - Added current TinyFish Search filters (`include_domains`,
