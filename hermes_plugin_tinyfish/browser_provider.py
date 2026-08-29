@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import suppress
 from typing import Any
 
 try:
@@ -17,7 +18,7 @@ except Exception:  # pragma: no cover - lets package import outside Hermes
 from . import rest_client
 from .config import credit_policy, tinyfish_config
 from .credit_policy import INDEPENDENT_NOTICE, PRICING_NOTICE
-from .provider import _provider_env
+from .provider import _api_key
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,14 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
         return "TinyFish"
 
     def is_available(self) -> bool:
-        return bool(credit_policy("browser") in {"request", "allow"} and _provider_env("TINYFISH_API_KEY"))
+        return bool(credit_policy("browser") in {"request", "allow"} and _api_key())
 
     def create_session(self, task_id: str) -> dict[str, object]:
-        api_key = _provider_env("TINYFISH_API_KEY")
+        api_key = _api_key()
         if not api_key:
-            raise ValueError("TINYFISH_API_KEY is required for TinyFish Browser sessions.")
+            raise ValueError(
+                "TINYFISH_API_KEY or MCP_TINYFISH_API_KEY is required for TinyFish Browser sessions."
+            )
         if credit_policy("browser") == "deny":
             raise ValueError(
                 "TinyFish Browser is credit-policy denied. Run "
@@ -51,12 +54,18 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
             try:
                 timeout_seconds = int(browser_cfg["timeout_seconds"])
             except (TypeError, ValueError):
+                logger.warning("Ignoring malformed TinyFish Browser timeout configuration")
                 timeout_seconds = None
 
         data = rest_client.create_browser_session(api_key=api_key, timeout_seconds=timeout_seconds)
         session_id = str(data.get("session_id") or data.get("id") or "")
         cdp_url = str(data.get("cdp_url") or data.get("cdpUrl") or "")
         if not session_id or not cdp_url:
+            if session_id:
+                # Avoid leaving a billable half-created session running when
+                # TinyFish returns an incomplete connection payload.
+                with suppress(Exception):
+                    rest_client.close_browser_session(session_id, api_key=api_key)
             raise RuntimeError("TinyFish Browser did not return session_id and cdp_url.")
         session_name = f"tinyfish_{task_id}_{uuid.uuid4().hex[:8]}"
         logger.info("Created TinyFish browser session")
@@ -72,11 +81,16 @@ class TinyFishBrowserProvider(_HermesBrowserProvider):  # type: ignore[misc]
         }
 
     def close_session(self, session_id: str) -> bool:
-        api_key = _provider_env("TINYFISH_API_KEY")
-        if not api_key:
-            logger.warning("Cannot close TinyFish browser session: missing API key")
+        # Hermes' BrowserProvider contract treats cleanup as best effort.
+        try:
+            api_key = _api_key()
+            if not api_key:
+                logger.warning("Cannot close TinyFish browser session: missing API key")
+                return False
+            return rest_client.close_browser_session(session_id, api_key=api_key)
+        except Exception as exc:
+            logger.debug("TinyFish browser close failed (%s)", type(exc).__name__)
             return False
-        return rest_client.close_browser_session(session_id, api_key=api_key)
 
     def emergency_cleanup(self, session_id: str) -> None:
         try:

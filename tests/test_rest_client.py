@@ -39,10 +39,14 @@ def test_search_sends_supported_query_options(monkeypatch: pytest.MonkeyPatch) -
         timeout=12.5,
         location="US",
         language="en",
+        include_domains="docs.tinyfish.ai,github.com",
+        exclude_domains="example.com",
         recency_minutes=60,
         after_date="2026-01-01",
         before_date="2026-02-01",
         domain_type="news",
+        pub_year_min=2024,
+        pub_year_max=2026,
         page=2,
         purpose="research",
     )
@@ -54,10 +58,14 @@ def test_search_sends_supported_query_options(monkeypatch: pytest.MonkeyPatch) -
             "query": "tiny fish",
             "location": "US",
             "language": "en",
+            "include_domains": "docs.tinyfish.ai,github.com",
+            "exclude_domains": "example.com",
             "recency_minutes": 60,
             "after_date": "2026-01-01",
             "before_date": "2026-02-01",
             "domain_type": "news",
+            "pub_year_min": 2024,
+            "pub_year_max": 2026,
             "page": 2,
             "purpose": "research",
         },
@@ -97,6 +105,12 @@ def test_fetch_sends_supported_body_options(monkeypatch: pytest.MonkeyPatch) -> 
         image_links=True,
         ttl=300,
         per_url_timeout_ms=2500,
+        purpose="Read the main article",
+        if_none_match='W/"abc"',
+        if_modified_since="Wed, 21 Oct 2015 07:28:00 GMT",
+        include_etag_and_last_modified=True,
+        include_selectors=["main", "article"],
+        exclude_selectors=[".comments"],
         timeout=22.0,
     )
 
@@ -110,6 +124,12 @@ def test_fetch_sends_supported_body_options(monkeypatch: pytest.MonkeyPatch) -> 
             "image_links": True,
             "ttl": 300,
             "per_url_timeout_ms": 2500,
+            "purpose": "Read the main article",
+            "if_none_match": 'W/"abc"',
+            "if_modified_since": "Wed, 21 Oct 2015 07:28:00 GMT",
+            "include_etag_and_last_modified": True,
+            "include_selectors": ["main", "article"],
+            "exclude_selectors": [".comments"],
         },
         "headers": {
             "X-API-Key": "tf_test",
@@ -118,6 +138,23 @@ def test_fetch_sends_supported_body_options(monkeypatch: pytest.MonkeyPatch) -> 
         },
         "timeout": 22.0,
     }
+
+
+def test_fetch_default_timeout_covers_documented_batch_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_post(url: str, **kwargs: Any) -> httpx.Response:
+        captured.update(kwargs)
+        return _response("POST", url, payload={"results": [], "errors": []})
+
+    monkeypatch.setattr(rest_client.httpx, "post", fake_post)
+
+    rest_client.fetch(["https://example.com"], api_key="tf_test")
+
+    assert captured["timeout"] == 150.0
+    assert rest_client.FETCH_MAX_URLS == 10
 
 
 def test_create_browser_session_sends_only_configured_fields(

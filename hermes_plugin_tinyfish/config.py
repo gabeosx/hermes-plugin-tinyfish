@@ -135,16 +135,34 @@ def _bool_option(value: Any) -> bool | None:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _string_list_option(value: Any) -> list[str] | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, (list, tuple)):
+        return None
+    items = [str(item).strip() for item in value if str(item).strip()]
+    return items or None
+
+
 def search_options(config: dict[str, Any] | None = None) -> SearchOptions:
     section = tinyfish_config(config).get("search") or {}
     if not isinstance(section, dict):
         return {}
     options: SearchOptions = {}
-    for key in ("location", "language", "after_date", "before_date", "domain_type", "purpose"):
+    for key in (
+        "location",
+        "language",
+        "include_domains",
+        "exclude_domains",
+        "after_date",
+        "before_date",
+        "domain_type",
+        "purpose",
+    ):
         value = section.get(key)
         if value not in (None, ""):
             options[key] = str(value)
-    for key in ("recency_minutes", "page"):
+    for key in ("recency_minutes", "pub_year_min", "pub_year_max", "page"):
         value = _int_option(section.get(key))
         if value is not None:
             options[key] = value
@@ -157,13 +175,21 @@ def fetch_options(config: dict[str, Any] | None = None) -> FetchOptions:
         return {}
     options: FetchOptions = {}
     for key in ("ttl", "per_url_timeout_ms"):
-        value = _int_option(section.get(key))
-        if value is not None:
-            options[key] = value
-    for key in ("links", "image_links"):
-        value = _bool_option(section.get(key))
-        if value is not None:
-            options[key] = value
+        int_value = _int_option(section.get(key))
+        if int_value is not None:
+            options[key] = int_value
+    for key in ("links", "image_links", "include_etag_and_last_modified"):
+        bool_value = _bool_option(section.get(key))
+        if bool_value is not None:
+            options[key] = bool_value
+    for key in ("purpose", "if_none_match", "if_modified_since"):
+        text_value = section.get(key)
+        if text_value not in (None, ""):
+            options[key] = str(text_value)
+    for key in ("include_selectors", "exclude_selectors"):
+        list_value = _string_list_option(section.get(key))
+        if list_value is not None:
+            options[key] = list_value
     return options
 
 

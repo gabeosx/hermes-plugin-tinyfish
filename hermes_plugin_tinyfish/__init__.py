@@ -52,9 +52,11 @@ def register(ctx: Any) -> None:
     update_checker = UpdateChecker(resolve_install_info(ctx, __version__))
     turn_context = TinyFishTurnContext(update_checker)
     ctx.register_web_search_provider(provider)
-    if hasattr(ctx, "register_browser_provider"):
-        ctx.register_browser_provider(TinyFishBrowserProvider())
     if hasattr(ctx, "register_hook"):
+        # Browser policy "request" depends on the pre_tool_call approval hook.
+        # Do not expose the paid provider on older hosts that cannot install it.
+        if hasattr(ctx, "register_browser_provider"):
+            ctx.register_browser_provider(TinyFishBrowserProvider())
         ctx.register_hook("pre_tool_call", pre_tool_call_policy)
         ctx.register_hook("pre_llm_call", turn_context)
     update_checker.start()

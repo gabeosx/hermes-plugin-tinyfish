@@ -57,6 +57,7 @@ include = [
   "tests",
   "scripts",
   "plugin.yaml",
+  "after-install.md",
   "__init__.py",
   "README.md",
   "LICENSE",

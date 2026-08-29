@@ -185,6 +185,40 @@ def test_setup_configures_core_only_defaults_without_removing_retired_keys(
     assert "tf_secret" not in output
 
 
+def test_store_api_key_verifies_secure_write_and_warns_about_shell_shadow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_save_env_secure", lambda name, value: {"success": True})
+    monkeypatch.setattr(cli, "_read_saved_env", lambda name: "tf_saved")
+    monkeypatch.setenv("TINYFISH_API_KEY", "tf_shell")
+
+    assert cli._store_api_key("tf_saved") is True
+    output = capsys.readouterr().out
+    assert "Saved TINYFISH_API_KEY" in output
+    assert "shadows it at runtime" in output
+    assert "tf_saved" not in output
+    assert "tf_shell" not in output
+
+
+def test_store_api_key_rejects_unverified_managed_write(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_save_env_secure", lambda name, value: {"success": True})
+    monkeypatch.setattr(cli, "_read_saved_env", lambda name: "")
+
+    assert cli._store_api_key("tf_secret") is False
+    assert "managed install or managed key" in capsys.readouterr().err
+
+
+def test_store_api_key_supports_legacy_hermes_writer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_save_env_secure", lambda name, value: None)
+
+    assert cli._store_api_key("tf_secret") is True
+    assert "Saved TINYFISH_API_KEY" in capsys.readouterr().out
+
+
 def test_setup_live_delegates_to_authoritative_doctor(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "_load_config", lambda: {})
     monkeypatch.setattr(cli, "_save_config", lambda config: None)
@@ -297,8 +331,28 @@ def test_collect_status_always_reports_empty_retired_keys(
     assert status["latest_plugin_version"] is None
     assert status["plugin_update_available"] is None
     assert status["mcp_token_cache_note"] == "presence only; OAuth validity is not checked"
+    assert status["api_key_fallback_configured"] is True
+    assert status["api_key_fallback_env_var"] == "TINYFISH_API_KEY"
     assert status["mcp_runtime_state"] == "not_checked"
     assert config == before
+
+
+def test_status_detects_tinyfish_cli_seeded_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    provider = _FakeProvider()
+    config = _configured_config()
+    monkeypatch.setattr(cli, "_load_config", lambda: config)
+    monkeypatch.setattr(
+        cli,
+        "_get_env",
+        lambda name: "tf_cli" if name == "MCP_TINYFISH_API_KEY" else "",
+    )
+    monkeypatch.setattr(cli, "_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_tool_names", lambda: set())
+
+    status = cli.collect_status(provider=provider)
+
+    assert status["api_key_fallback_configured"] is True
+    assert status["api_key_fallback_env_var"] == "MCP_TINYFISH_API_KEY"
 
 
 def test_status_json_reports_retired_keys_without_mutating_config(
@@ -566,7 +620,9 @@ def test_live_paid_requires_api_key_after_approval(monkeypatch: pytest.MonkeyPat
     status: dict[str, Any] = {"credit_policy": {"browser": "request"}}
 
     assert cli._run_live_paid_checks(status) is False
-    assert status["live_paid_error"] == "TINYFISH_API_KEY is required for paid live checks."
+    assert status["live_paid_error"] == (
+        "TINYFISH_API_KEY or MCP_TINYFISH_API_KEY is required for paid live checks."
+    )
 
 
 def test_live_paid_creates_and_always_closes_browser_without_exposing_session_data(
@@ -738,6 +794,25 @@ def test_usage_calls_wallet_and_returns_machine_readable_billing_data(
         "wallet": {"available_balance": "21.44", "currency": "USD"},
     }
     assert "tf_secret" not in json.dumps(payload)
+
+
+def test_usage_accepts_tinyfish_cli_seeded_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "_get_env",
+        lambda name: "tf_cli" if name == "MCP_TINYFISH_API_KEY" else "",
+    )
+    monkeypatch.setattr(
+        cli.rest_client,
+        "wallet",
+        lambda *, api_key: calls.append(api_key) or {"available_balance": "0"},
+    )
+
+    assert cli.cmd_usage(argparse.Namespace(json=True)) == 0
+    assert calls == ["tf_cli"]
 
 
 def test_usage_text_output_formats_wallet_for_people(

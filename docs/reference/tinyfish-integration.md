@@ -28,25 +28,42 @@ Search and Fetch are MCP-first:
 
 - Hosted MCP endpoint: `https://agent.tinyfish.ai/mcp`
 - Plugin-managed MCP tools: `search`, `fetch_content`
-- REST fallback: `TINYFISH_API_KEY`
+- REST fallback: `TINYFISH_API_KEY`, then TinyFish CLI-seeded
+  `MCP_TINYFISH_API_KEY`
 
-REST fallback supports optional TinyFish Search/Fetch configuration:
+Both transports support the same optional TinyFish Search/Fetch defaults:
 
 ```yaml
 tinyfish:
   search:
     location: US
     language: en
+    include_domains: docs.tinyfish.ai,github.com
+    exclude_domains: example.com
     recency_minutes: 1440
+    domain_type: web
+    purpose: Find implementation documentation
   fetch:
     format: markdown
     ttl: 3600
+    purpose: Read the primary page content
+    include_selectors: [main, article]
+    exclude_selectors: [nav, .comments]
+    include_etag_and_last_modified: true
 ```
 
-These values are REST fallback defaults only. They do not represent remembered
-user intent, and the plugin does not add persistent domain lists, selectors,
-or other parity controls. A user can state those requirements in ordinary
-language for the current request.
+Search additionally supports `after_date`, `before_date`, `page`,
+`pub_year_min`, and `pub_year_max`. Fetch additionally supports `links`,
+`image_links`, `per_url_timeout_ms`, `if_none_match`, and
+`if_modified_since`. Publication years apply only to `research_paper` mode;
+conditional validators apply only to a single URL. The plugin returns a clear
+per-URL error instead of issuing an invalid conditional batch.
+
+These are operator defaults, not remembered user intent. One-off controls
+stated in ordinary language still route to the native MCP tool because
+Hermes's generic web schemas do not carry TinyFish-specific parameters. The
+same defaults are passed to MCP and REST so transport failover preserves the
+operator's constraints.
 
 When TinyFish MCP is configured, a `pre_llm_call` hook injects marked routing
 guidance when the active context does not already contain that routing version:
@@ -57,6 +74,13 @@ guidance when the active context does not already contain that routing version:
   publication-year modes, pagination, selectors, conditional validators,
   output formats, link/image extraction, caching, or timeouts use the native
   TinyFish MCP `search` or `fetch_content` tool exposed by Hermes.
+
+Fetch normalization preserves current TinyFish metadata needed for monitoring
+and selector recovery: ETag and Last-Modified validators, `not_modified`,
+unmatched selectors, candidate-selector retry hints, links/images, author and
+publication date, latency, and format. JSON document trees are emitted as
+valid compact JSON. The provider chunks direct calls above the 10-URL API cap
+and restores input order across TinyFish's separate success/error arrays.
 
 Hermes persists its API-bound message sidecar for prompt-cache replay while
 keeping visible conversation content clean. The hook checks only its versioned
@@ -114,6 +138,8 @@ Provider behavior:
 
 - `is_available()` is non-networked and requires an API key plus a non-deny
   Browser policy.
+- The provider is registered only when Hermes can also install the
+  `pre_tool_call` approval hook.
 - Hermes owns page-level planning and browser tool calls.
 - TinyFish session IDs and connection URLs are not printed by diagnostics.
 - Session termination retries documented transient HTTP statuses and transport
@@ -121,6 +147,8 @@ Provider behavior:
   treats 404 as failed cleanup rather than proof of idempotent termination.
 - `doctor --live-paid` creates and closes one Browser session and treats failed
   cleanup as a failed diagnostic.
+- An incomplete session response with an ID but no CDP URL triggers immediate
+  best-effort close, and `close_session()` never raises into Hermes cleanup.
 
 ## Deliberate Exclusions
 

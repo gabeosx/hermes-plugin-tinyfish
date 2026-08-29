@@ -19,6 +19,14 @@ def test_browser_provider_available_when_policy_enabled(monkeypatch) -> None:
     assert TinyFishBrowserProvider().is_available() is True
 
 
+def test_browser_provider_accepts_tinyfish_cli_seeded_key(monkeypatch) -> None:
+    monkeypatch.delenv("TINYFISH_API_KEY", raising=False)
+    monkeypatch.setenv("MCP_TINYFISH_API_KEY", "tf_cli")
+    monkeypatch.setattr("hermes_plugin_tinyfish.browser_provider.credit_policy", lambda feature: "request")
+
+    assert TinyFishBrowserProvider().is_available() is True
+
+
 def test_browser_provider_create_session_shape(monkeypatch) -> None:
     monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
     monkeypatch.setattr("hermes_plugin_tinyfish.browser_provider.credit_policy", lambda feature: "allow")
@@ -52,6 +60,42 @@ def test_browser_provider_close_session(monkeypatch) -> None:
 
     assert TinyFishBrowserProvider().close_session("sess_123") is True
     assert seen == {"session_id": "sess_123", "api_key": "tf_test"}
+
+
+def test_browser_provider_closes_half_created_session(monkeypatch) -> None:
+    monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
+    monkeypatch.setattr("hermes_plugin_tinyfish.browser_provider.credit_policy", lambda feature: "allow")
+    monkeypatch.setattr(
+        rest_client,
+        "create_browser_session",
+        lambda **kwargs: {"session_id": "sess_123"},
+    )
+    closed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        rest_client,
+        "close_browser_session",
+        lambda session_id, *, api_key: closed.append((session_id, api_key)) or True,
+    )
+
+    try:
+        TinyFishBrowserProvider().create_session("task")
+    except RuntimeError as exc:
+        assert "session_id and cdp_url" in str(exc)
+    else:
+        raise AssertionError("Incomplete session response must fail")
+
+    assert closed == [("sess_123", "tf_test")]
+
+
+def test_browser_provider_close_never_raises(monkeypatch) -> None:
+    monkeypatch.setenv("TINYFISH_API_KEY", "tf_test")
+    monkeypatch.setattr(
+        rest_client,
+        "close_browser_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("secret session detail")),
+    )
+
+    assert TinyFishBrowserProvider().close_session("sess_secret") is False
 
 
 def test_browser_provider_cleanup_logs_do_not_expose_session_id(monkeypatch, caplog) -> None:

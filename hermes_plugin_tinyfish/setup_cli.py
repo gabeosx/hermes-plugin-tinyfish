@@ -26,6 +26,7 @@ from .config import (
 from .credit_policy import INDEPENDENT_NOTICE, PRICING_NOTICE, request_credit_approval
 from .health import VALID_TRANSPORTS, TinyFishProviderHealth, Transport
 from .provider import (
+    API_KEY_ENV_VARS,
     MCP_FETCH_TOOLS,
     MCP_SEARCH_TOOLS,
     TinyFishWebSearchProvider,
@@ -134,10 +135,72 @@ def _get_env(name: str) -> str:
         return str(os.getenv(name, "") or "").strip()
 
 
+def _api_key_env_var() -> str:
+    for name in API_KEY_ENV_VARS:
+        if _get_env(name):
+            return name
+    return ""
+
+
 def _save_env(name: str, value: str) -> None:
     from hermes_cli.config import save_env_value
 
     save_env_value(name, value)
+
+
+def _save_env_secure(name: str, value: str) -> dict[str, Any] | None:
+    """Use Hermes' managed-secret path when available.
+
+    Hermes releases before the managed credential lifecycle only expose
+    ``save_env_value``. Returning ``None`` distinguishes that compatible
+    fallback from a structured secure-write outcome.
+    """
+
+    try:
+        from hermes_cli.config import save_env_value_secure
+    except (ImportError, AttributeError):
+        _save_env(name, value)
+        return None
+    return dict(save_env_value_secure(name, value) or {})
+
+
+def _read_saved_env(name: str) -> str:
+    try:
+        from hermes_cli.config import get_env_value_prefer_dotenv
+
+        return str(get_env_value_prefer_dotenv(name) or "").strip()
+    except (ImportError, AttributeError):
+        return _get_env(name)
+
+
+def _store_api_key(api_key: str) -> bool:
+    try:
+        outcome = _save_env_secure("TINYFISH_API_KEY", api_key)
+    except Exception as exc:
+        outcome = {"success": False, "error": type(exc).__name__}
+
+    if outcome is None:
+        print("Saved TINYFISH_API_KEY fallback in Hermes .env")
+        return True
+
+    # Managed installs can refuse a credential write. Verify the persisted
+    # .env value rather than trusting only the structured success flag.
+    if outcome.get("success") and _read_saved_env("TINYFISH_API_KEY") == api_key:
+        print("Saved TINYFISH_API_KEY fallback in Hermes .env")
+        shell_value = str(os.environ.get("TINYFISH_API_KEY", "") or "").strip()
+        if shell_value and shell_value != api_key:
+            print(
+                "Warning: the TINYFISH_API_KEY exported in this shell differs "
+                "from the saved key and shadows it at runtime."
+            )
+        return True
+
+    print(
+        "Could not save TINYFISH_API_KEY (managed install or managed key); "
+        "set it in your environment instead.",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _hermes_home() -> Path:
@@ -234,7 +297,7 @@ def cmd_setup(
     api_key = (getattr(args, "api_key", None) or "").strip()
     if (
         not api_key
-        and not _get_env("TINYFISH_API_KEY")
+        and not _api_key_env_var()
         and sys.stdin.isatty()
         and _confirm(
             "Add TINYFISH_API_KEY as REST fallback now?",
@@ -243,9 +306,8 @@ def cmd_setup(
         )
     ):
         api_key = _prompt_secret("TinyFish API key: ")
-    if api_key:
-        _save_env("TINYFISH_API_KEY", api_key)
-        print("Saved TINYFISH_API_KEY fallback in Hermes .env")
+    if api_key and not _store_api_key(api_key):
+        return 1
 
     should_login = bool(getattr(args, "login", False))
     if not should_login and not getattr(args, "skip_login", False) and sys.stdin.isatty():
@@ -362,7 +424,7 @@ def collect_status(
     # prevented from immediately repeating it if registration still failed.
     names = _tool_names()
     token_path = _hermes_home() / "mcp-tokens" / "tinyfish.json"
-    api_key_configured = bool(_get_env("TINYFISH_API_KEY"))
+    api_key_env_var = _api_key_env_var()
     provider = provider or TinyFishWebSearchProvider()
     health = _health_status(provider)
     if update_checker is None:
@@ -383,7 +445,8 @@ def collect_status(
         "mcp_fetch_tool_registered": any(name in names for name in MCP_FETCH_TOOLS),
         "mcp_token_cached": token_path.exists(),
         "mcp_token_cache_note": "presence only; OAuth validity is not checked",
-        "api_key_fallback_configured": api_key_configured,
+        "api_key_fallback_configured": bool(api_key_env_var),
+        "api_key_fallback_env_var": api_key_env_var or None,
         "credit_policy": credit_policy_summary(config),
         "retired_credit_policy_keys": retired_credit_policy_keys(config),
         "routing_context_enabled": routing_context_enabled(config),
@@ -553,8 +616,9 @@ def cmd_doctor(
             if not configured:
                 if transport == "rest" and not status.get("api_key_fallback_configured"):
                     print(
-                        "Recommended next step: configure TINYFISH_API_KEY, then retry the "
-                        "REST-only live check."
+                        "Recommended next step: configure TINYFISH_API_KEY (or use the "
+                        "TinyFish CLI-seeded MCP_TINYFISH_API_KEY), then retry the REST-only "
+                        "live check."
                     )
                 else:
                     print("Recommended next step: run `hermes tinyfish setup`.")
@@ -604,10 +668,12 @@ def tinyfish_status_command(
 
 
 def _api_key_or_error() -> str | None:
-    api_key = _get_env("TINYFISH_API_KEY")
+    env_var = _api_key_env_var()
+    api_key = _get_env(env_var) if env_var else ""
     if not api_key:
         print(
-            "TINYFISH_API_KEY is required for TinyFish Search/Fetch usage and Browser operations.",
+            "TINYFISH_API_KEY or MCP_TINYFISH_API_KEY is required for TinyFish "
+            "Search/Fetch usage and Browser operations.",
             file=sys.stderr,
         )
         return None
@@ -630,11 +696,14 @@ def _run_live_paid_checks(status: dict[str, Any]) -> bool:
         status["live_paid_error"] = message
         return False
 
-    api_key = _get_env("TINYFISH_API_KEY")
+    env_var = _api_key_env_var()
+    api_key = _get_env(env_var) if env_var else ""
     if not api_key:
         status["live_paid_ok"] = False
         status["live_paid_browser_ok"] = False
-        status["live_paid_error"] = "TINYFISH_API_KEY is required for paid live checks."
+        status["live_paid_error"] = (
+            "TINYFISH_API_KEY or MCP_TINYFISH_API_KEY is required for paid live checks."
+        )
         return False
 
     session_id = ""

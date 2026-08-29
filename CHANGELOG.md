@@ -7,6 +7,38 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Added
+
+- Added current TinyFish Search filters (`include_domains`,
+  `exclude_domains`, `pub_year_min`, and `pub_year_max`) and Fetch controls
+  (`purpose`, CSS include/exclude selectors, conditional validators, and
+  validator-return metadata) across both MCP and REST transports.
+- Added compatibility with TinyFish CLI-seeded `MCP_TINYFISH_API_KEY`, while
+  preserving `TINYFISH_API_KEY` precedence.
+- Added a Hermes `after-install.md` guide that routes new installs through
+  OAuth-first setup, diagnostics, and explicit paid-Browser policy.
+
+### Changed
+
+- Forwarded operator Search/Fetch defaults consistently through MCP and REST,
+  increased the REST Fetch timeout to TinyFish's documented 150-second batch
+  recommendation, chunked direct calls at the 10-URL API cap, and restored
+  output to input URL order.
+- Expanded normalization to preserve news/research fields, selector recovery
+  hints, conditional/cache metadata, authorship, links/images, and latency;
+  JSON Fetch document trees now remain valid JSON.
+- Bumped the tool-routing context to version 3 so it distinguishes transport-
+  invariant operator defaults from one-off controls that require native MCP
+  schemas.
+
+### Fixed
+
+- Closed billable Browser sessions when TinyFish returns an ID without a CDP
+  URL, prevented cleanup exceptions from escaping the provider contract, and
+  withheld Browser registration on Hermes hosts lacking approval hooks.
+- Adopted Hermes's managed-secret credential writer with persisted-value
+  verification while retaining the legacy writer on older supported hosts.
+
 ## [0.3.4] - 2026-08-13
 
 ### Fixed

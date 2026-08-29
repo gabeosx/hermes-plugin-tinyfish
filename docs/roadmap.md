@@ -14,6 +14,20 @@ The following areas may be promoted only when user evidence justifies them:
 These are directions rather than commitments. Concrete work should begin with
 a target user, observed need, expected impact, and acceptance criteria.
 
+## Delivered Differentiators
+
+- OAuth-first MCP with config-aware REST failover and TinyFish CLI-key
+  interoperability.
+- Transport-parity Search/Fetch defaults, including current domain,
+  publication-year, selector, conditional, caching, timeout, and intent
+  controls.
+- Rich Fetch/search metadata preservation, selector retry hints, ordered
+  partial failures, and bounded 10-URL chunking.
+- Default-deny Browser policy, approval-hook gating, incomplete-session cleanup,
+  and bounded non-raising close behavior.
+- Transport health, reauthorization diagnostics, update awareness, migration
+  reporting, and multi-version Hermes compatibility checks.
+
 ## Explicit Non-Goals
 
 - TinyFish Agent execution or run lifecycle management.
