@@ -46,7 +46,7 @@ Run the full local test/build suite before opening or updating a release PR:
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
-python3 -m mypy hermes_plugin_tinyfish
+python3 -m mypy hermes/hermes_plugin_tinyfish
 python3 -m pytest
 rm -rf dist && python3 -m build
 ```

@@ -27,7 +27,7 @@ TinyFish documentation and may change; Browser defaults to `deny`.
 Hermes Git plugin install:
 
 ```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --enable
 hermes tinyfish setup
 ```
 
@@ -48,6 +48,16 @@ hermes plugins update web-tinyfish
 hermes tinyfish status
 hermes tinyfish doctor
 ```
+
+Installations created before `0.4.0` from the repository root should migrate
+once to the minimal scanner-friendly distribution before updating:
+
+```bash
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --force --enable
+```
+
+This replaces only the plugin checkout; Hermes configuration, OAuth state, and
+externally managed credentials remain in the active Hermes profile.
 
 If the plugin was installed as a Python package instead, update it with:
 
@@ -98,8 +108,10 @@ tinyfish:
 ```
 
 The plugin prefers TinyFish's hosted OAuth MCP server and falls back to REST
-with `TINYFISH_API_KEY` when MCP OAuth is unavailable. It may save
-`TINYFISH_API_KEY` to `~/.hermes/.env` if you choose API-key fallback.
+with `TINYFISH_API_KEY` when MCP OAuth is unavailable. It also recognizes
+`MCP_TINYFISH_API_KEY`, which the TinyFish CLI may seed during its Hermes
+connection flow; an explicit `TINYFISH_API_KEY` takes precedence. The plugin
+may save `TINYFISH_API_KEY` to `~/.hermes/.env` if you choose API-key fallback.
 
 Verify Search and Fetch:
 
@@ -182,28 +194,70 @@ compressed.
 
 ## Search and Fetch Options
 
-Optional REST fallback defaults can be configured in `config.yaml`:
+Optional operator defaults can be configured in `config.yaml`:
 
 ```yaml
 tinyfish:
   search:
     location: US
     language: en
+    include_domains: docs.tinyfish.ai,github.com
+    exclude_domains: example.com
     recency_minutes: 1440
     domain_type: web
+    # pub_year_min: 2024  # research_paper mode only
+    # pub_year_max: 2026
     page: 0
+    purpose: Find primary documentation for implementation decisions
   fetch:
     format: markdown
     links: false
     image_links: false
     ttl: 3600
+    per_url_timeout_ms: 45000
+    purpose: Extract the main documentation content
+    include_selectors: [main, article]
+    exclude_selectors: [nav, .comments, .newsletter-signup]
+    include_etag_and_last_modified: true
 ```
 
-MCP remains the preferred path when configured. These options apply only to
-REST fallback calls. They are fixed fallback defaults, not required settings
-for ordinary requests and not a substitute for plain-language, per-request MCP
-controls. The plugin does not add persistent include-domain, exclude-selector,
-or similar parity settings.
+MCP remains the preferred path when configured. These defaults are forwarded
+consistently through MCP and REST, so failover does not silently discard the
+operator's domain, date, intent, selector, cache, or extraction constraints.
+They are not required for ordinary requests and do not replace plain-language,
+per-request MCP controls: Hermes's generic `web_search` and `web_extract`
+schemas cannot express these options for one call, so the routing note steers
+one-off advanced requests to native TinyFish `search` or `fetch_content`.
+
+Fetch also supports the URL-specific `if_none_match` and
+`if_modified_since` settings. TinyFish permits either validator only for a
+single URL, and the plugin fails clearly instead of sending an invalid batch.
+Selector lists accept up to 20 CSS selectors. A total include-selector miss is
+returned as `selector_not_matched` with TinyFish's unmatched selectors and
+candidate-selector retry hints preserved in document metadata. Conditional
+validators, `not_modified`, links, images, author/date, latency, output format,
+and other current Fetch metadata are preserved as well. JSON-format document
+trees are serialized as valid JSON rather than Python object representations.
+
+Direct provider callers may pass the same Fetch options per call. Requests over
+TinyFish's 10-URL API limit are split into bounded chunks, and results are
+restored to input URL order even when TinyFish separates successes and errors.
+
+## Why Choose This Community Plugin
+
+- OAuth-first MCP setup avoids requiring an API key, while config-aware REST
+  fallback and TinyFish CLI-seeded keys remain supported.
+- Search and Fetch use the same advanced option set on both transports, with
+  categorized MCP health, explicit MCP-only/REST-only diagnostics, safe
+  reauthorization, and observable failover.
+- Browser is fail-closed by default. It is not exposed on older Hermes hosts
+  that cannot install the approval hook, incomplete billable sessions are
+  cleaned up, and close failures never escape Hermes's cleanup contract.
+- GitHub and PyPI distribution, nonblocking update awareness, migration
+  reporting, and an automated Hermes compatibility matrix make upgrades
+  predictable.
+- The scope stays Hermes-native: no competing delegated agent loop, no hidden
+  expansion of paid capabilities, and clear independent/pricing disclosures.
 
 ## Optional Browser Provider
 
@@ -312,7 +366,7 @@ python -m pip install -U pip
 python -m pip install -e ".[dev]"
 ruff format .
 ruff check .
-mypy hermes_plugin_tinyfish
+mypy hermes/hermes_plugin_tinyfish
 pytest --cov=hermes_plugin_tinyfish --cov-fail-under=70
 python -m build
 ```

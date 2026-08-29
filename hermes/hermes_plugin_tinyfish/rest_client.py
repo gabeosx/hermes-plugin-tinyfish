@@ -10,6 +10,7 @@ import httpx
 
 SEARCH_URL = "https://api.search.tinyfish.ai"
 FETCH_URL = "https://api.fetch.tinyfish.ai"
+FETCH_MAX_URLS = 10
 BROWSER_URL = "https://api.browser.tinyfish.ai"
 WALLET_URL = "https://agent.tinyfish.ai/v1/wallet"
 SEARCH_USAGE_URL = f"{SEARCH_URL}/usage"
@@ -55,10 +56,14 @@ def search(
     timeout: float = 30.0,
     location: str | None = None,
     language: str | None = None,
+    include_domains: str | None = None,
+    exclude_domains: str | None = None,
     recency_minutes: int | None = None,
     after_date: str | None = None,
     before_date: str | None = None,
     domain_type: str | None = None,
+    pub_year_min: int | None = None,
+    pub_year_max: int | None = None,
     page: int | None = None,
     purpose: str | None = None,
 ) -> dict[str, Any]:
@@ -68,10 +73,14 @@ def search(
     for key, value in {
         "location": location,
         "language": language,
+        "include_domains": include_domains,
+        "exclude_domains": exclude_domains,
         "recency_minutes": recency_minutes,
         "after_date": after_date,
         "before_date": before_date,
         "domain_type": domain_type,
+        "pub_year_min": pub_year_min,
+        "pub_year_max": pub_year_max,
         "page": page,
         "purpose": purpose,
     }.items():
@@ -104,7 +113,15 @@ def fetch(
     image_links: bool | None = None,
     ttl: int | None = None,
     per_url_timeout_ms: int | None = None,
-    timeout: float = 60.0,
+    purpose: str | None = None,
+    if_none_match: str | None = None,
+    if_modified_since: str | None = None,
+    include_etag_and_last_modified: bool | None = None,
+    include_selectors: list[str] | None = None,
+    exclude_selectors: list[str] | None = None,
+    # TinyFish documents a 120-second CDN ceiling for batches and recommends
+    # a client timeout of at least 150 seconds.
+    timeout: float = 150.0,
 ) -> dict[str, Any]:
     """Run the TinyFish Fetch API for one or more URLs."""
 
@@ -114,6 +131,12 @@ def fetch(
         "image_links": image_links,
         "ttl": ttl,
         "per_url_timeout_ms": per_url_timeout_ms,
+        "purpose": purpose,
+        "if_none_match": if_none_match,
+        "if_modified_since": if_modified_since,
+        "include_etag_and_last_modified": include_etag_and_last_modified,
+        "include_selectors": include_selectors,
+        "exclude_selectors": exclude_selectors,
     }.items():
         if value is not None:
             body[key] = value

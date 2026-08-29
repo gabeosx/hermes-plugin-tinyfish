@@ -38,7 +38,7 @@ release gates below.
 Fresh Git install:
 
 ```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --enable
 hermes tinyfish setup
 ```
 

@@ -67,6 +67,37 @@ def test_register_never_adds_retired_model_tools(monkeypatch) -> None:
     assert ctx.tools == []
 
 
+def test_register_does_not_expose_paid_browser_without_policy_hooks() -> None:
+    class LegacyContext:
+        def __init__(self) -> None:
+            self.providers = []
+            self.browser_providers = []
+            self.cli_commands = []
+            self.commands = []
+
+        def dispatch_tool(self, name, args):
+            return "{}"
+
+        def register_web_search_provider(self, provider) -> None:
+            self.providers.append(provider)
+
+        def register_browser_provider(self, provider) -> None:
+            self.browser_providers.append(provider)
+
+        def register_cli_command(self, **kwargs) -> None:
+            self.cli_commands.append(kwargs)
+
+        def register_command(self, **kwargs) -> None:
+            self.commands.append(kwargs)
+
+    ctx = LegacyContext()
+
+    hermes_plugin_tinyfish.register(ctx)
+
+    assert ctx.providers[0].name == "tinyfish"
+    assert ctx.browser_providers == []
+
+
 def test_registered_cli_handler_propagates_nonzero_exit_status(monkeypatch) -> None:
     monkeypatch.setattr(
         setup_cli,

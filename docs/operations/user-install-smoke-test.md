@@ -6,7 +6,7 @@ have. Use a disposable `HERMES_HOME`, and never print credentials.
 ## Primary Git Path
 
 ```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --enable
 hermes tinyfish setup
 hermes tinyfish doctor
 hermes tinyfish doctor --live

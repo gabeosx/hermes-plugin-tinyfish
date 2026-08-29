@@ -117,7 +117,7 @@ public marketplace/search index for this plugin, so installation docs use the
 repository identifier directly:
 
 ```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --enable
 ```
 
 ## Compatibility Rule

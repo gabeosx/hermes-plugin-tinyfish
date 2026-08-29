@@ -19,6 +19,8 @@ def write_release_files(root: Path) -> None:
         )
     )
     (root / "plugin.yaml").write_text("name: web-tinyfish\nversion: 0.2.0\n")
+    (root / "hermes").mkdir()
+    (root / "hermes" / "plugin.yaml").write_text("name: web-tinyfish\nversion: 0.2.0\n")
     (root / "CHANGELOG.md").write_text(
         "\n".join(
             [

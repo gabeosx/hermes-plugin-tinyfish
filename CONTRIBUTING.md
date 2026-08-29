@@ -11,7 +11,7 @@ python -m pip install -U pip
 python -m pip install -e ".[dev]"
 ruff format .
 ruff check .
-mypy hermes_plugin_tinyfish
+mypy hermes/hermes_plugin_tinyfish
 pytest
 python -m build
 ```

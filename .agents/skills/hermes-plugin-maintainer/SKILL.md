@@ -64,8 +64,8 @@ environment blocker prevents it:
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
-python3 -m compileall hermes_plugin_tinyfish scripts tests
-python3 -m mypy hermes_plugin_tinyfish
+python3 -m compileall hermes/hermes_plugin_tinyfish scripts tests
+python3 -m mypy hermes/hermes_plugin_tinyfish
 python3 -m pytest
 python3 -m build
 ```

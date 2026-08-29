@@ -1,15 +1,19 @@
-"""Directory-plugin entry point for ``hermes plugins install``.
+"""Compatibility entry point for pre-0.4 root-directory Git installs.
 
-Hermes loads this file directly when the repository is installed as a user
-plugin. The package entry point in ``pyproject.toml`` imports the same
-``register`` function when installed from PyPI.
+New Hermes installations use the scanner-friendly ``hermes/`` subdirectory.
+Existing root-directory installations still load this shim after an update.
 """
 
 from __future__ import annotations
 
-try:
-    from .hermes_plugin_tinyfish import register
-except ImportError:  # pragma: no cover - used for pip entry-point import shape
-    from hermes_plugin_tinyfish import register
+import sys
+from pathlib import Path
+
+_INSTALL_ROOT = Path(__file__).resolve().parent / "hermes"
+_install_root_text = str(_INSTALL_ROOT)
+if _install_root_text not in sys.path:
+    sys.path.insert(0, _install_root_text)
+
+from hermes_plugin_tinyfish import register  # noqa: E402
 
 __all__ = ["register"]

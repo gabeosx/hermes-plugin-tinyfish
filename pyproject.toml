@@ -48,15 +48,22 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["hermes_plugin_tinyfish"]
-include = ["plugin.yaml"]
+packages = ["hermes/hermes_plugin_tinyfish"]
 
 [tool.hatch.build.targets.sdist]
+exclude = [
+  "/.agents",
+  "/.github",
+]
 include = [
-  "hermes_plugin_tinyfish",
+  "hermes/hermes_plugin_tinyfish",
+  "hermes/plugin.yaml",
+  "hermes/after-install.md",
+  "hermes/__init__.py",
   "tests",
   "scripts",
   "plugin.yaml",
+  "after-install.md",
   "__init__.py",
   "README.md",
   "LICENSE",
@@ -69,6 +76,7 @@ include = [
 [tool.ruff]
 line-length = 110
 target-version = "py310"
+src = [".", "hermes"]
 extend-exclude = [".agents"]
 
 [tool.ruff.lint]
@@ -85,4 +93,5 @@ exclude = ["tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["hermes"]
 addopts = "-ra"

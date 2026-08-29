@@ -1,7 +1,7 @@
 """Prepare a Hermes TinyFish release PR.
 
 This script promotes the current CHANGELOG.md "Unreleased" section into a
-dated version section and keeps pyproject.toml and plugin.yaml aligned.
+dated version section and keeps both Git-install manifests aligned.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def promote_changelog(changelog_text: str, version: str, release_date: str) -> s
 
 def prepare_release(root: pathlib.Path, *, bump: str, version: str | None, release_date: str) -> str:
     pyproject_path = root / "pyproject.toml"
-    plugin_path = root / "plugin.yaml"
+    plugin_paths = (root / "plugin.yaml", root / "hermes" / "plugin.yaml")
     changelog_path = root / "CHANGELOG.md"
 
     pyproject_text = pyproject_path.read_text()
@@ -89,7 +89,8 @@ def prepare_release(root: pathlib.Path, *, bump: str, version: str | None, relea
     parse_version(next_version)
 
     pyproject_path.write_text(update_pyproject(pyproject_text, next_version))
-    plugin_path.write_text(update_plugin_yaml(plugin_path.read_text(), next_version))
+    for plugin_path in plugin_paths:
+        plugin_path.write_text(update_plugin_yaml(plugin_path.read_text(), next_version))
     changelog_path.write_text(promote_changelog(changelog_path.read_text(), next_version, release_date))
     return next_version
 

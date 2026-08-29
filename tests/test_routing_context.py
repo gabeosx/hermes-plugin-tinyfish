@@ -34,7 +34,7 @@ def test_routing_context_defaults_on_only_for_configured_tinyfish_mcp(
     first = context(user_message="ordinary search", conversation_history=[])
 
     assert first is not None
-    assert routing.ROUTING_CONTEXT_MARKER == '<tinyfish-routing-context version="2">'
+    assert routing.ROUTING_CONTEXT_MARKER == '<tinyfish-routing-context version="3">'
     assert routing.ROUTING_CONTEXT_MARKER in first["context"]
     assert "`web_search` or `web_extract`" in first["context"]
     assert "`search` or `fetch_content`" in first["context"]
@@ -42,7 +42,7 @@ def test_routing_context_defaults_on_only_for_configured_tinyfish_mcp(
     assert "ETag/Last-Modified" in first["context"]
     assert "silently dropping" in first["context"]
     assert "plain language" in first["context"]
-    assert "persist per-request controls" in first["context"]
+    assert "rewrite operator defaults" in first["context"]
 
 
 @pytest.mark.parametrize(
