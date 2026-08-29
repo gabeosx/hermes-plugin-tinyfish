@@ -16,7 +16,8 @@ Normal releases follow the pull-request label on the merged change:
   release label is present.
 
 After a release-triggering merge, **Auto Release** opens a release-prep PR. The
-prep workflow updates `pyproject.toml`, `plugin.yaml`, and `CHANGELOG.md`, then
+prep workflow updates `pyproject.toml`, both Git-install manifests, and
+`CHANGELOG.md`, then
 enables auto-merge when repository settings allow it. Merging that PR creates
 the matching tag and GitHub Release; PyPI publication runs only when
 `PYPI_PUBLISH_ENABLED == true`.
@@ -63,7 +64,7 @@ Check the working tree and version metadata:
 git status --short
 ```
 
-`pyproject.toml` and `plugin.yaml` must match. A public release must also have a
+`pyproject.toml`, `plugin.yaml`, and `hermes/plugin.yaml` must match. A public release must also have a
 dated `CHANGELOG.md` section for that exact version. Preserve historical notes,
 including the removed `0.2.x` Agent/Profile behavior.
 
@@ -76,8 +77,8 @@ Run the full local suite:
 ```bash
 python3 -m ruff format --check .
 python3 -m ruff check .
-python3 -m compileall hermes_plugin_tinyfish scripts tests
-python3 -m mypy hermes_plugin_tinyfish
+python3 -m compileall hermes/hermes_plugin_tinyfish scripts tests
+python3 -m mypy hermes/hermes_plugin_tinyfish
 python3 -m pytest --cov=hermes_plugin_tinyfish --cov-report=term-missing --cov-fail-under=70
 rm -rf dist && python3 -m build
 ```

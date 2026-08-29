@@ -37,10 +37,10 @@ jobs:
         run: ruff check .
 
       - name: Python compatibility compile check
-        run: python -m compileall hermes_plugin_tinyfish scripts tests
+        run: python -m compileall hermes/hermes_plugin_tinyfish scripts tests
 
       - name: Type check
-        run: mypy hermes_plugin_tinyfish
+        run: mypy hermes/hermes_plugin_tinyfish
 
       - name: Test
         run: pytest --cov=hermes_plugin_tinyfish --cov-report=term-missing --cov-fail-under=70
@@ -65,10 +65,11 @@ jobs:
           root = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
           with (root / "pyproject.toml").open("rb") as fh:
               project_version = tomllib.load(fh)["project"]["version"]
-          manifest = (root / "plugin.yaml").read_text()
-          match = re.search(r"(?m)^version:\s*([^\s#]+)", manifest)
-          assert match, "plugin.yaml version is missing"
-          assert match.group(1) == project_version, (match.group(1), project_version)
+          for relative in ("plugin.yaml", "hermes/plugin.yaml"):
+              manifest = (root / relative).read_text()
+              match = re.search(r"(?m)^version:\s*([^\s#]+)", manifest)
+              assert match, f"{relative} version is missing"
+              assert match.group(1) == project_version, (relative, match.group(1), project_version)
 
           PY
           expected_plugin_version="$(python -c 'import importlib.metadata as m; print(m.version("hermes-plugin-tinyfish"))')"
@@ -208,7 +209,7 @@ jobs:
           contexts = invoke_hook("pre_llm_call", conversation_history=[])
           assert len(contexts) == 1, contexts
           routing = contexts[0]["context"]
-          assert '<tinyfish-routing-context version="2">' in routing, routing
+          assert '<tinyfish-routing-context version="3">' in routing, routing
           assert "`web_search` or `web_extract`" in routing, routing
           assert "`search` or `fetch_content`" in routing, routing
           assert "research-paper" in routing, routing

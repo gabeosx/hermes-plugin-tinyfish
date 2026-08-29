@@ -6,8 +6,8 @@
 
 - [ ] `ruff format --check .`
 - [ ] `ruff check .`
-- [ ] `python -m compileall hermes_plugin_tinyfish scripts tests`
-- [ ] `mypy hermes_plugin_tinyfish`
+- [ ] `python -m compileall hermes/hermes_plugin_tinyfish scripts tests`
+- [ ] `mypy hermes/hermes_plugin_tinyfish`
 - [ ] `pytest --cov=hermes_plugin_tinyfish --cov-fail-under=70`
 - [ ] `python -m build`
 - [ ] Relevant Hermes install/update, provider, or gateway path checked

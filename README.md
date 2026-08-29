@@ -27,7 +27,7 @@ TinyFish documentation and may change; Browser defaults to `deny`.
 Hermes Git plugin install:
 
 ```bash
-hermes plugins install gabeosx/hermes-plugin-tinyfish --enable
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --enable
 hermes tinyfish setup
 ```
 
@@ -48,6 +48,16 @@ hermes plugins update web-tinyfish
 hermes tinyfish status
 hermes tinyfish doctor
 ```
+
+Installations created before `0.4.0` from the repository root should migrate
+once to the minimal scanner-friendly distribution before updating:
+
+```bash
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --force --enable
+```
+
+This replaces only the plugin checkout; Hermes configuration, OAuth state, and
+externally managed credentials remain in the active Hermes profile.
 
 If the plugin was installed as a Python package instead, update it with:
 
@@ -356,7 +366,7 @@ python -m pip install -U pip
 python -m pip install -e ".[dev]"
 ruff format .
 ruff check .
-mypy hermes_plugin_tinyfish
+mypy hermes/hermes_plugin_tinyfish
 pytest --cov=hermes_plugin_tinyfish --cov-fail-under=70
 python -m build
 ```

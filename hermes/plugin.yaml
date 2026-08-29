@@ -1,6 +1,6 @@
 name: web-tinyfish
 version: 0.3.4
-description: "Compatibility manifest for existing root-directory installs. New installs should use the scanner-friendly /hermes subdirectory."
+description: "Independent TinyFish provider plugin for Hermes Agent. Adds MCP-first Search/Fetch, plain-language tool routing, update awareness, and optional default-deny Browser infrastructure."
 author: gabeosx
 kind: backend
 provides_web_providers:

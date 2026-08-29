@@ -28,15 +28,17 @@ def validate_release(root: pathlib.Path, *, tag: str, notes_path: pathlib.Path) 
             f"Tag {tag!r} does not match pyproject version {version!r}; expected {expected_tag!r}"
         )
 
-    plugin_yaml = (root / "plugin.yaml").read_text()
-    plugin_match = re.search(r"^version:\s*['\"]?([^'\"\s#]+)", plugin_yaml, re.MULTILINE)
-    if not plugin_match:
-        raise ReleaseValidationError("plugin.yaml is missing a top-level version")
-    plugin_version = plugin_match.group(1)
-    if plugin_version != version:
-        raise ReleaseValidationError(
-            f"plugin.yaml version {plugin_version!r} does not match pyproject version {version!r}"
-        )
+    for plugin_path in (root / "plugin.yaml", root / "hermes" / "plugin.yaml"):
+        plugin_yaml = plugin_path.read_text()
+        plugin_match = re.search(r"^version:\s*['\"]?([^'\"\s#]+)", plugin_yaml, re.MULTILINE)
+        if not plugin_match:
+            raise ReleaseValidationError(f"{plugin_path.relative_to(root)} is missing a top-level version")
+        plugin_version = plugin_match.group(1)
+        if plugin_version != version:
+            raise ReleaseValidationError(
+                f"{plugin_path.relative_to(root)} version {plugin_version!r} "
+                f"does not match pyproject version {version!r}"
+            )
 
     changelog = (root / "CHANGELOG.md").read_text()
     pattern = (

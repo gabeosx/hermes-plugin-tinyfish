@@ -17,6 +17,9 @@ and this project uses semantic versioning.
   preserving `TINYFISH_API_KEY` precedence.
 - Added a Hermes `after-install.md` guide that routes new installs through
   OAuth-first setup, diagnostics, and explicit paid-Browser policy.
+- Added a minimal `hermes/` Git-install distribution so current Hermes security
+  scanning evaluates runtime plugin files instead of repository development
+  workflows and agent-maintenance tooling.
 
 ### Changed
 

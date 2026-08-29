@@ -1,21 +1,12 @@
-# TinyFish for Hermes is installed
+# TinyFish for Hermes has moved to a minimal install surface
 
-Finish setup with:
+This compatibility entry point keeps existing installations working. For
+future scanner-clean updates, reinstall from the dedicated subdirectory:
 
 ```bash
+hermes plugins install gabeosx/hermes-plugin-tinyfish/hermes --force --enable
 hermes tinyfish setup
 ```
 
-The setup flow prefers TinyFish OAuth, can use `TINYFISH_API_KEY` or the
-TinyFish CLI's `MCP_TINYFISH_API_KEY`, and verifies the active transport.
-
-Then check the installation with:
-
-```bash
-hermes tinyfish doctor
-```
-
-Search and Fetch are free and enabled through Hermes. Paid Browser sessions
-remain disabled until you explicitly choose an approval policy during setup.
-
-Documentation: https://github.com/gabeosx/hermes-plugin-tinyfish#readme
+The reinstall preserves your Hermes configuration, OAuth state, and externally
+managed API keys.

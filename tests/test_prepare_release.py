@@ -19,6 +19,8 @@ def write_release_files(root: Path) -> None:
         )
     )
     (root / "plugin.yaml").write_text("name: web-tinyfish\nversion: 0.1.4\n")
+    (root / "hermes").mkdir()
+    (root / "hermes" / "plugin.yaml").write_text("name: web-tinyfish\nversion: 0.1.4\n")
     (root / "CHANGELOG.md").write_text(
         "\n".join(
             [
@@ -49,6 +51,7 @@ def test_prepare_release_bumps_metadata_and_promotes_unreleased(tmp_path: Path) 
     assert version == "0.2.0"
     assert 'version = "0.2.0"' in (tmp_path / "pyproject.toml").read_text()
     assert "version: 0.2.0" in (tmp_path / "plugin.yaml").read_text()
+    assert "version: 0.2.0" in (tmp_path / "hermes" / "plugin.yaml").read_text()
     changelog = (tmp_path / "CHANGELOG.md").read_text()
     assert "## Unreleased\n\n## [0.2.0] - 2026-07-08" in changelog
     assert "- Added a feature." in changelog
