@@ -171,7 +171,7 @@ def _discover_tinyfish_mcp_tools(
             suppress_interactive_oauth = None
 
         try:
-            from tools.mcp_tool import discover_mcp_tools
+            from tools.mcp_tool_discovery import discover_mcp_tools
         except Exception:
             return
 

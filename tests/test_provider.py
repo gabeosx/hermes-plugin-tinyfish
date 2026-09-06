@@ -153,6 +153,44 @@ def test_search_discovers_mcp_tools_before_rest(monkeypatch: pytest.MonkeyPatch)
     assert fake_registry.calls == [("mcp__tinyfish__search", {"query": "query"})]
 
 
+def test_lazy_mcp_discovery_works_without_deprecated_facade(monkeypatch: pytest.MonkeyPatch) -> None:
+    oauth_suppressed = False
+
+    @contextlib.contextmanager
+    def suppress_oauth():
+        nonlocal oauth_suppressed
+        oauth_suppressed = True
+        try:
+            yield
+        finally:
+            oauth_suppressed = False
+
+    def discover() -> None:
+        assert oauth_suppressed
+        fake_registry.names.add("mcp__tinyfish__search")
+        fake_registry.responses["mcp__tinyfish__search"] = {
+            "results": [{"title": "Discovered", "url": "https://example.com", "snippet": "MCP"}]
+        }
+
+    oauth_mod = types.ModuleType("tools.mcp_oauth")
+    oauth_mod.suppress_interactive_oauth = suppress_oauth
+    discovery_mod = types.ModuleType("tools.mcp_tool_discovery")
+    discovery_mod.discover_mcp_tools = discover
+    monkeypatch.setitem(sys.modules, "tools.mcp_oauth", oauth_mod)
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool_discovery", discovery_mod)
+    # Model Hermes after removal of the facade's discovery re-export.
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool", types.ModuleType("tools.mcp_tool"))
+    monkeypatch.setattr(provider_mod, "_tinyfish_mcp_configured", lambda: True)
+
+    result = TinyFishWebSearchProvider().search("query", transport="mcp")
+
+    assert result["success"] is True
+    assert result["data"]["web"][0]["title"] == "Discovered"
+    assert fake_registry.calls == [("mcp__tinyfish__search", {"query": "query"})]
+    assert not oauth_suppressed
+    assert not provider_mod._discovery_lock.locked()
+
+
 def test_concurrent_plugin_discovery_is_single_flight(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
     discovery_started = threading.Event()
@@ -187,10 +225,10 @@ def test_concurrent_plugin_discovery_is_single_flight(monkeypatch: pytest.Monkey
 
     oauth_mod = types.ModuleType("tools.mcp_oauth")
     oauth_mod.suppress_interactive_oauth = contextlib.nullcontext
-    mcp_tool_mod = types.ModuleType("tools.mcp_tool")
+    mcp_tool_mod = types.ModuleType("tools.mcp_tool_discovery")
     mcp_tool_mod.discover_mcp_tools = discover
     monkeypatch.setitem(sys.modules, "tools.mcp_oauth", oauth_mod)
-    monkeypatch.setitem(sys.modules, "tools.mcp_tool", mcp_tool_mod)
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool_discovery", mcp_tool_mod)
     monkeypatch.setattr(provider_mod, "_tinyfish_mcp_configured", lambda: True)
     monkeypatch.setattr(provider_mod, "_discovery_lock", ObservedLock())
 
