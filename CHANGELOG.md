@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+## [0.4.1] - 2026-09-06
+
 ### Fixed
 
 - Use Hermes's supported MCP discovery import so TinyFish continues loading
