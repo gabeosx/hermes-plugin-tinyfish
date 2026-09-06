@@ -1,5 +1,5 @@
 name: web-tinyfish
-version: 0.4.0
+version: 0.4.1
 description: "Compatibility manifest for existing root-directory installs. New installs should use the scanner-friendly /hermes subdirectory."
 author: gabeosx
 kind: backend
