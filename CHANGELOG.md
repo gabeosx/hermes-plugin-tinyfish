@@ -7,6 +7,11 @@ and this project uses semantic versioning.
 
 ## Unreleased
 
+### Fixed
+
+- Use Hermes's supported MCP discovery import so TinyFish continues loading
+  after the September 14, 2026 removal of deprecated import paths.
+
 ## [0.4.0] - 2026-08-29
 
 ### Added
